@@ -1,7 +1,7 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.db import SessionLocal
-from app.models import AuditOutbox
+from app.models import AuditOutbox, Employment, RelatedContact
 
 from .conftest import as_role
 
@@ -44,6 +44,68 @@ def test_validation_and_duplicates(client):
     # Callers cannot set server-controlled fields.
     assert client.post("/api/v1/customers", headers=as_role("agent"),
                        json={**JANE, "email": "a@example.com", "status": "blocked"}).status_code == 422
+
+
+def test_field_validation(client):
+    def rejected(**fields) -> bool:
+        r = client.post("/api/v1/customers", headers=as_role("agent"), json={**JANE, "email": "v@example.com", **fields})
+        return r.status_code == 422
+
+    assert rejected(first_name="J4ne") and rejected(last_name="<b>Doe</b>") and rejected(first_name="   ")
+    assert rejected(phone="call me") and rejected(phone="12345") and rejected(phone="+1 555 0100 ext 9")
+    assert rejected(date_of_birth="2999-01-01") and rejected(date_of_birth="1850-01-01")
+    assert rejected(city="12345") and rejected(country="India!") and rejected(postal_code="@@@")
+    ok = client.post("/api/v1/customers", headers=as_role("agent"), json={
+        **JANE, "email": "v@example.com", "first_name": "Mary Ann", "last_name": "O'Brien-Smith Jr.",
+        "phone": "+44 (20) 7946-0958", "date_of_birth": "1990-05-17", "city": "St. John's",
+        "state": "Uttar Pradesh", "country": "India", "postal_code": "SW1A 1AA"})
+    assert ok.status_code == 201, ok.text
+    # The same rules apply when editing. Names in other scripts are accepted.
+    url = f"/api/v1/customers/{ok.json()['id']}"
+    assert client.patch(url, headers=as_role("agent"), json={"first_name": "प्रिया", "city": "मुंबई"}).status_code == 200
+    assert client.patch(url, headers=as_role("agent"), json={"phone": "abc"}).status_code == 422
+    assert client.patch(url, headers=as_role("agent"), json={"first_name": "R2D2"}).status_code == 422
+
+    jobs, contacts = f"{url}/employment", f"{url}/contacts"
+    assert client.post(jobs, headers=as_role("manager"), json={"employer_name": "---"}).status_code == 422
+    assert client.post(jobs, headers=as_role("manager"),
+                       json={"employer_name": "Acme", "end_date": "2024-01-01"}).status_code == 422  # current + end date
+    assert client.post(jobs, headers=as_role("manager"), json={"employer_name": "Acme", "currency": "usd"}).status_code == 422
+    assert client.post(contacts, headers=as_role("manager"),
+                       json={"full_name": "Bob", "relationship_type": "spouse", "phone": "x"}).status_code == 422
+    assert client.post(contacts, headers=as_role("manager"),
+                       json={"full_name": "B0b", "relationship_type": "spouse"}).status_code == 422
+    assert client.post(contacts, headers=as_role("manager"),
+                       json={"full_name": "Bob", "relationship_type": "brother-in-law"}).status_code == 201
+
+
+def test_delete_customer(client):
+    c = create(client)
+    url = f"/api/v1/customers/{c['id']}"
+    client.post(f"{url}/employment", headers=as_role("manager"), json={"employer_name": "Acme"})
+    client.post(f"{url}/contacts", headers=as_role("manager"), json={"full_name": "Bob", "relationship_type": "parent"})
+
+    assert client.delete(url, headers=as_role("manager")).status_code == 403  # needs customer:delete
+    assert client.get(url, headers=as_role("viewer")).status_code == 200
+
+    # A blocked record is read-only, so it must be unblocked before it can be deleted.
+    client.post(f"{url}/block", headers=as_role("manager"), json={"reason": "Under review"})
+    assert client.delete(url, headers=as_role("admin")).status_code == 409
+    client.post(f"{url}/unblock", headers=as_role("manager"))
+
+    assert client.delete(url, headers=as_role("admin")).status_code == 204
+    assert client.get(url, headers=as_role("viewer")).status_code == 404
+    assert client.get(f"{url}/employment", headers=as_role("viewer")).status_code == 404
+    assert client.delete(url, headers=as_role("admin")).status_code == 404
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Employment)) == 0
+        assert db.scalar(select(func.count()).select_from(RelatedContact)) == 0
+
+    last = [e for e in events() if e["action"] == "customer.deleted"][-1]
+    assert last["actor_email"] == "admin@example.com" and last["resource_id"] == c["id"]
+    assert last["details"]["record"]["email"] == JANE["email"]
+    assert last["details"]["employment_records"] == 1 and last["details"]["related_contacts"] == 1
+    create(client)  # the email is free to use again
 
 
 def test_rbac_on_customer_actions(client):

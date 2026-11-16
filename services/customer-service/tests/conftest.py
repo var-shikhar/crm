@@ -18,6 +18,7 @@ ROLE_PERMISSIONS = {
     "manager": ["customer:read", "customer:create", "customer:update", "customer:block",
                 "customer:employment:manage", "customer:contact:manage"],
 }
+ROLE_PERMISSIONS["admin"] = ROLE_PERMISSIONS["manager"] + ["customer:delete"]
 
 
 def as_role(role: str) -> dict:

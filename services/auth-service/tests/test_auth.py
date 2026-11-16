@@ -1,10 +1,13 @@
 import time
+import uuid
 
 import pyotp
-from sqlalchemy import select
+from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 
 from app.db import SessionLocal
-from app.models import AuditOutbox
+from app.main import app
+from app.models import AuditOutbox, RefreshToken
 
 from .conftest import ADMIN, SERVICE_AUTH, bearer, last_email_code, login, make_user, mfa_step, password_step
 
@@ -222,6 +225,59 @@ def test_user_validation_and_self_protection(client):
     r = client.post("/api/v1/users", headers=bearer(admin),
                     json={"email": "r@example.com", "full_name": "R", "password": "Another-Passw0rd!", "roles": ["nope"]})
     assert r.status_code == 422
+    for bad_name in ("R2-D2", "   ", "<script>"):
+        r = client.post("/api/v1/users", headers=bearer(admin),
+                        json={"email": "n@example.com", "full_name": bad_name, "password": "Another-Passw0rd!"})
+        assert r.status_code == 422, bad_name
+    assert client.patch(f"/api/v1/users/{me['id']}", headers=bearer(admin), json={"full_name": "4dmin"}).status_code == 422
+
+
+def test_delete_user(client):
+    admin = login(client)
+    me = client.get("/api/v1/me", headers=bearer(admin)).json()
+    target = make_user(client, admin, "agent@example.com", ["agent"])
+    agent = login(client, "agent@example.com", "User-Passw0rd!")
+    url = f"/api/v1/users/{target['id']}"
+
+    assert client.delete(url, headers=bearer(agent)).status_code == 403
+    assert client.delete(f"/api/v1/users/{me['id']}", headers=bearer(admin)).status_code == 400  # not yourself
+
+    assert client.delete(url, headers=bearer(admin)).status_code == 204
+    assert client.get(url, headers=bearer(admin)).status_code == 404
+    assert client.delete(url, headers=bearer(admin)).status_code == 404
+    # Signed out everywhere, and cannot sign in again.
+    assert client.get("/api/v1/me", headers=bearer(agent)).status_code == 401
+    r = client.post("/oauth/token", data={"grant_type": "refresh_token", "client_id": "crm-web",
+                                          "refresh_token": agent["refresh_token"]})
+    assert r.status_code == 400
+    assert password_step(client, "agent@example.com", "User-Passw0rd!").status_code == 400
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(RefreshToken)
+                         .where(RefreshToken.user_id == uuid.UUID(target["id"]))) == 0
+    assert "user.deleted" in audit_actions()
+    make_user(client, admin, "agent@example.com", ["agent"])  # the email is free to use again
+
+
+def test_last_administrator_cannot_be_deleted(client):
+    admin = login(client)
+    me = client.get("/api/v1/me", headers=bearer(admin)).json()
+    r = client.post("/api/v1/roles", headers=bearer(admin),
+                    json={"name": "user_admin", "permissions": ["user:read", "user:manage"]})
+    assert r.status_code == 201
+    make_user(client, admin, "helpdesk@example.com", ["user_admin"])
+    helpdesk = login(client, "helpdesk@example.com", "User-Passw0rd!")
+
+    r = client.delete(f"/api/v1/users/{me['id']}", headers=bearer(helpdesk))
+    assert r.status_code == 409 and "last active administrator" in r.json()["detail"]
+
+    make_user(client, admin, "second@example.com", ["admin"])
+    assert client.delete(f"/api/v1/users/{me['id']}", headers=bearer(helpdesk)).status_code == 204
+
+    # A restart must not bring the deleted bootstrap administrator back.
+    with TestClient(app):
+        pass
+    emails = [u["email"] for u in client.get("/api/v1/users", headers=bearer(helpdesk)).json()]
+    assert ADMIN[0] not in emails and "second@example.com" in emails
 
 
 def test_custom_role_lifecycle(client):

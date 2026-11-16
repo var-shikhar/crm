@@ -26,7 +26,13 @@ function saveTokens(tokens) {
 function errorText(data, status) {
   const d = data && (data.detail ?? data.error_description);
   if (typeof d === 'string') return d;
-  if (Array.isArray(d)) return d.map((e) => `${(e.loc || []).slice(1).join('.') || 'input'}: ${e.msg}`).join('; ');
+  if (Array.isArray(d)) {
+    return d.map((e) => {
+      const name = (e.loc || []).slice(1).join(' ').replace(/_/g, ' ');
+      const msg = String(e.msg).replace(/^Value error, /, '');
+      return name ? `${name[0].toUpperCase()}${name.slice(1)}: ${msg}` : `${msg[0].toUpperCase()}${msg.slice(1)}`;
+    }).join('; ');
+  }
   if (status === 429) return 'Too many attempts. Wait a moment and try again.';
   if (status >= 500) return 'The service is unavailable. Try again shortly.';
   return `Request failed (${status})`;
@@ -170,17 +176,25 @@ async function loadMe() { state.me = await api(`${AUTH}/me`); }
 
 // ----------------------------------------------------------------- customers
 
-const CUSTOMER_FIELDS = [
-  ['First name', 'first_name', 'required maxlength="100"'], ['Last name', 'last_name', 'required maxlength="100"'],
-  ['Email', 'email', 'type="email" required'], ['Phone', 'phone', 'maxlength="40"'],
-  ['Date of birth', 'date_of_birth', 'type="date"'], ['Address line 1', 'address_line1', ''],
-  ['Address line 2', 'address_line2', ''], ['City', 'city', ''], ['State', 'state', ''],
-  ['Postal code', 'postal_code', ''], ['Country', 'country', ''],
+// Input rules. They mirror the server's checks (shared/crm_common/validation.py), which remain the authority;
+// these only let the browser point at the field before anything is sent.
+const NAME_RULE = String.raw`pattern="[\p{L}\p{M}]+([ .'’\-]+[\p{L}\p{M}]+)*\.?" title="Letters only; spaces, hyphens, apostrophes and periods are allowed between them"`;
+const PLACE_RULE = String.raw`maxlength="100" pattern="\p{L}[\p{L}\p{M} .,'’\(\)\-]*" title="Must start with a letter; no digits or symbols"`;
+const PHONE_RULE = String.raw`type="tel" maxlength="40" pattern="\+?(?=([^0-9]*[0-9]){7})(?!([^0-9]*[0-9]){16})[0-9 \(\).\-]+" title="7 to 15 digits; may start with + and include spaces, hyphens, periods or brackets"`;
+const POSTAL_RULE = String.raw`maxlength="20" pattern="[A-Za-z0-9][A-Za-z0-9 \-]+" title="2 to 20 letters or digits; spaces and hyphens allowed"`;
+const today = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+
+const customerFields = () => [
+  ['First name', 'first_name', `required maxlength="100" ${NAME_RULE}`], ['Last name', 'last_name', `required maxlength="100" ${NAME_RULE}`],
+  ['Email', 'email', 'type="email" required maxlength="254"'], ['Phone', 'phone', PHONE_RULE],
+  ['Date of birth', 'date_of_birth', `type="date" min="1900-01-01" max="${today()}"`], ['Address line 1', 'address_line1', 'maxlength="200"'],
+  ['Address line 2', 'address_line2', 'maxlength="200"'], ['City', 'city', PLACE_RULE], ['State', 'state', PLACE_RULE],
+  ['Postal code', 'postal_code', POSTAL_RULE], ['Country', 'country', PLACE_RULE],
 ];
 
 const customerForm = (c = {}, disabled = false) => `
-  <div class="grid">${CUSTOMER_FIELDS.map(([l, n, a]) => field(l, n, c[n] ?? '', `${a} ${disabled ? 'disabled' : ''}`)).join('')}</div>
-  <label>Notes<textarea name="notes" rows="2" ${disabled ? 'disabled' : ''}>${esc(c.notes ?? '')}</textarea></label>`;
+  <div class="grid">${customerFields().map(([l, n, a]) => field(l, n, c[n] ?? '', `${a} ${disabled ? 'disabled' : ''}`)).join('')}</div>
+  <label>Notes<textarea name="notes" rows="2" maxlength="5000" ${disabled ? 'disabled' : ''}>${esc(c.notes ?? '')}</textarea></label>`;
 
 async function customersView() {
   const p = state.params;
@@ -251,11 +265,12 @@ async function customerView() {
     <div class="card stack"><h2>Employment</h2>
       ${jobRows ? `<div class="table-wrap"><table><thead><tr><th>Employer</th><th>Title</th><th>Type</th><th>Period</th><th>Annual income</th><th></th></tr></thead><tbody>${jobRows}</tbody></table></div>` : '<p class="muted">No employment records.</p>'}
       ${canJobs ? `<form data-form="add-employment" class="stack"><div class="grid">
-          ${field('Employer', 'employer_name', '', 'required')}${field('Job title', 'job_title')}
+          ${field('Employer', 'employer_name', '', 'required maxlength="200" pattern=".*[\\p{L}\\p{N}].*" title="Must contain a letter or digit"')}
+          ${field('Job title', 'job_title', '', 'maxlength="200" pattern=".*[\\p{L}\\p{N}].*" title="Must contain a letter or digit"')}
           <label>Type<select name="employment_type">${EMPLOYMENT_TYPES.map((t) => `<option value="${t}">${t.replace('_', ' ')}</option>`).join('')}</select></label>
-          ${field('Start date', 'start_date', '', 'type="date"')}${field('End date', 'end_date', '', 'type="date"')}
-          ${field('Annual income', 'annual_income', '', 'type="number" min="0" step="0.01"')}
-          ${field('Currency (ISO code)', 'currency', '', 'maxlength="3" placeholder="USD"')}</div>
+          ${field('Start date', 'start_date', '', 'type="date" min="1900-01-01"')}${field('End date', 'end_date', '', 'type="date" min="1900-01-01"')}
+          ${field('Annual income', 'annual_income', '', 'type="number" min="0" max="999999999999.99" step="0.01"')}
+          ${field('Currency (ISO code)', 'currency', '', 'minlength="3" maxlength="3" pattern="[A-Za-z]{3}" title="Three letters, for example USD" placeholder="USD"')}</div>
           <label class="check"><input type="checkbox" name="is_current" checked> Current job</label>
           <button type="submit">Add employment</button></form>` : ''}
     </div>
@@ -263,15 +278,20 @@ async function customerView() {
     <div class="card stack"><h2>Related contacts</h2>
       ${contactRows ? `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Relationship</th><th>Email</th><th>Phone</th><th>Notes</th><th></th></tr></thead><tbody>${contactRows}</tbody></table></div>` : '<p class="muted">No related contacts.</p>'}
       ${canContacts ? `<form data-form="add-contact" class="stack"><div class="grid">
-          ${field('Full name', 'full_name', '', 'required')}${field('Relationship', 'relationship_type', '', 'required placeholder="spouse, parent, colleague…"')}
-          ${field('Email', 'email', '', 'type="email"')}${field('Phone', 'phone')}${field('Notes', 'notes')}</div>
+          ${field('Full name', 'full_name', '', `required maxlength="200" ${NAME_RULE}`)}${field('Relationship', 'relationship_type', '', `required maxlength="64" ${NAME_RULE} placeholder="spouse, parent, colleague…"`)}
+          ${field('Email', 'email', '', 'type="email" maxlength="254"')}${field('Phone', 'phone', '', PHONE_RULE)}${field('Notes', 'notes', '', 'maxlength="5000"')}</div>
           <label class="check"><input type="checkbox" name="is_emergency_contact"> Emergency contact</label>
           <button type="submit">Add contact</button></form>` : ''}
     </div>
 
     ${can('customer:block') && !blocked ? `<form class="card row" data-form="block-customer"><h2>Block customer</h2>
       ${field('Reason (required)', 'reason', '', 'required minlength="3" maxlength="500"')}
-      <button class="danger" type="submit">Block customer</button></form>` : ''}`;
+      <button class="danger" type="submit">Block customer</button></form>` : ''}
+
+    ${can('customer:delete') ? `<div class="card stack"><h2>Delete customer</h2>
+      <p class="small muted">${blocked ? 'A blocked customer cannot be deleted. Unblock the record first.'
+        : 'Permanently removes this customer with all employment records and related contacts. The activity log keeps a copy of the deleted record.'}</p>
+      ${blocked ? '' : `<div><button class="danger" data-action="delete-customer" data-label="${esc(`${c.first_name} ${c.last_name}`)}">Delete customer</button></div>`}</div>` : ''}`;
 }
 
 // ---------------------------------------------------------------------- audit
@@ -334,7 +354,7 @@ async function usersView() {
     <h1>Users</h1>
     ${editing ? `<div class="card stack"><div class="row spread"><h2>Manage ${esc(editing.email)}</h2><button class="small" data-action="edit-user" data-id="">Close</button></div>
       <form data-form="update-user" class="stack">
-        ${field('Full name', 'full_name', editing.full_name, 'required')}
+        ${field('Full name', 'full_name', editing.full_name, `required maxlength="200" ${NAME_RULE}`)}
         <div>${self ? '<p class="small muted">You cannot change your own roles, status or second-factor requirement.</p>' : `${roleChecks(roles, editing.roles)}
           <label class="check"><input type="checkbox" name="is_active" ${editing.is_active ? 'checked' : ''}> Account active</label>
           <label class="check"><input type="checkbox" name="mfa_required" ${editing.mfa_required ? 'checked' : ''}> Require a second factor at sign-in</label>`}</div>
@@ -342,10 +362,11 @@ async function usersView() {
       <form data-form="set-user-password" class="row">${field('New password (min 10 characters)', 'new_password', '', 'type="password" minlength="10" required autocomplete="new-password"')}
         <button type="submit">Set password</button></form>
       <div class="row"><button data-action="reset-mfa">Reset second factor to email</button>
-        ${editing.is_locked ? '<button data-action="unlock-user">Unlock account</button>' : ''}</div></div>` : ''}
+        ${editing.is_locked ? '<button data-action="unlock-user">Unlock account</button>' : ''}
+        ${self ? '' : `<button class="danger" data-action="delete-user" data-label="${esc(editing.email)}">Delete user</button>`}</div></div>` : ''}
     ${manage && !editing ? `<form class="card stack" data-form="create-user"><h2>New user</h2><div class="grid">
-        ${field('Full name', 'full_name', '', 'required')}${field('Email', 'email', '', 'type="email" required')}
-        ${field('Initial password (min 10 characters)', 'password', '', 'type="password" minlength="10" required autocomplete="new-password"')}</div>
+        ${field('Full name', 'full_name', '', `required maxlength="200" ${NAME_RULE}`)}${field('Email', 'email', '', 'type="email" required maxlength="254"')}
+        ${field('Initial password (min 10 characters)', 'password', '', 'type="password" minlength="10" maxlength="128" required autocomplete="new-password"')}</div>
         <div>${roleChecks(roles)}</div>
         <label class="check"><input type="checkbox" name="mfa_required" checked> Require a second factor at sign-in (recommended)</label>
         <button class="primary" type="submit">Create user</button></form>` : ''}
@@ -452,6 +473,8 @@ const FORMS = {
     render();
   },
   async 'add-employment'(v) {
+    if (v.start_date && v.end_date && v.end_date < v.start_date) throw new Error('End date cannot be before the start date.');
+    if (v.is_current && v.end_date) throw new Error('A current job cannot have an end date. Untick “Current job” or clear the end date.');
     await api(`${CRM}/customers/${state.params.id}/employment`, { method: 'POST', body: dropEmpty({ ...v, currency: v.currency.toUpperCase() }) });
     flash('Employment record added.');
     render();
@@ -529,6 +552,18 @@ const ACTIONS = {
     await api(`${CRM}/customers/${state.params.id}/unblock`, { method: 'POST' });
     flash('Customer unblocked.');
     render();
+  },
+  async 'delete-customer'(el) {
+    if (!confirm(`Permanently delete ${el.dataset.label}, including all employment records and contacts? This cannot be undone.`)) return;
+    await api(`${CRM}/customers/${state.params.id}`, { method: 'DELETE' });
+    flash('Customer deleted.');
+    go('customers');
+  },
+  async 'delete-user'(el) {
+    if (!confirm(`Permanently delete the user ${el.dataset.label}? They are signed out at once. To keep the account but stop sign-in, untick “Account active” instead.`)) return;
+    await api(`${AUTH}/users/${state.params.id}`, { method: 'DELETE' });
+    flash('User deleted.');
+    go('users');
   },
   async 'remove-child'(el) {
     if (!confirm(`Remove ${el.dataset.label}? This cannot be undone.`)) return;

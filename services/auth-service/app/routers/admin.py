@@ -3,14 +3,14 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from crm_common.authz import Principal
 
 from ..db import get_db
 from ..deps import audit, require
-from ..models import Permission, Role, User, user_roles
+from ..models import MfaChallenge, Permission, RefreshToken, Role, User, user_roles
 from ..schemas import PermissionOut, RoleCreate, RoleOut, RoleUpdate, SetPassword, UserCreate, UserOut, UserUpdate
 from ..security import hash_password
 from .oauth import revoke_all_sessions
@@ -170,6 +170,31 @@ def unlock(user_id: uuid.UUID, request: Request, actor: Principal = Depends(requ
                details={"email": user.email})
     db.commit()
     return user
+
+
+@users.delete("/{user_id}", status_code=204, summary="Delete a user")
+def delete_user(user_id: uuid.UUID, request: Request, actor: Principal = Depends(require("user:manage")),
+                db: Session = Depends(get_db)):
+    """Permanently removes the account and signs it out everywhere. The activity log keeps what the
+    user did. You cannot delete yourself or the last active administrator; to keep the account but
+    stop sign-in, deactivate it instead."""
+    user = _get_user(db, user_id)
+    if str(user.id) == actor.id:
+        raise HTTPException(400, "You cannot delete your own account")
+    if "admin" in user.role_names and user.is_active:
+        other_admins = db.scalar(
+            select(func.count()).select_from(User)
+            .where(User.id != user.id, User.is_active.is_(True), User.roles.any(Role.name == "admin"))
+        )
+        if not other_admins:
+            raise HTTPException(409, "This is the last active administrator and cannot be deleted")
+    audit.emit(db, "user.deleted", request=request, actor=actor, resource_type="user", resource_id=user.id,
+               details={"email": user.email, "full_name": user.full_name, "roles": user.role_names})
+    # Explicit, because SQLite does not enforce the ON DELETE CASCADE on these tables.
+    db.execute(delete(RefreshToken).where(RefreshToken.user_id == user.id))
+    db.execute(delete(MfaChallenge).where(MfaChallenge.user_id == user.id))
+    db.delete(user)
+    db.commit()
 
 
 # -------------------------------------------------------------------- roles

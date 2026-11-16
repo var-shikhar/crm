@@ -23,6 +23,7 @@ PERMISSIONS: dict[str, str] = {
     "customer:create": "Add customers",
     "customer:update": "Edit customers",
     "customer:block": "Block and unblock customers",
+    "customer:delete": "Permanently delete customers",
     "customer:employment:manage": "Add, edit and remove customer employment records",
     "customer:contact:manage": "Add, edit and remove customer related contacts",
     "audit:read": "View the activity log",
@@ -31,7 +32,8 @@ PERMISSIONS: dict[str, str] = {
 # Scopes held only by service clients; never grantable to a role.
 SERVICE_SCOPES = {"authz:check", "audit:write"}
 
-CUSTOMER_ALL = [p for p in PERMISSIONS if p.startswith("customer:")]
+# Deleting is permanent, so by default only `admin` holds it; grant it to other roles deliberately.
+CUSTOMER_ALL = [p for p in PERMISSIONS if p.startswith("customer:") and p != "customer:delete"]
 
 DEFAULT_ROLES: dict[str, tuple[str, list[str]]] = {
     "admin": ("Full access to every module", list(PERMISSIONS)),
@@ -94,10 +96,13 @@ def seed(db: Session) -> None:
         if spec["grant_types"] == ["client_credentials"] and not secret:
             log.warning("client %s has no secret configured and cannot authenticate", spec["client_id"])
 
-    # First administrator
+    # First administrator: only while the system has no administrator at all. Checking for the
+    # bootstrap email alone would bring the account back after it was deleted or renamed.
     email = settings.bootstrap_admin_email.lower()
-    if settings.bootstrap_admin_password and db.scalar(select(User).where(User.email == email)) is None:
-        admin_role = db.scalar(select(Role).where(Role.name == "admin"))
+    admin_role = db.scalar(select(Role).where(Role.name == "admin"))
+    has_admin = db.scalar(select(User.id).where(User.roles.any(Role.id == admin_role.id)).limit(1)) is not None
+    if (settings.bootstrap_admin_password and not has_admin
+            and db.scalar(select(User).where(User.email == email)) is None):
         db.add(
             User(
                 email=email,

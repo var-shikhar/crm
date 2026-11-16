@@ -42,10 +42,10 @@ Other commands: `stop`, `restart`, `status`, `logs`, `reset` (deletes local data
 ## Verify it
 
 ```sh
-# Unit/API tests, one suite per service (37 tests)
+# Unit/API tests, one suite per service (41 tests)
 for s in auth customer audit; do (cd services/$s-service && PYTHONPATH=../../shared ../../.venv/bin/python -m pytest -q); done
 
-# End-to-end against the running stack (32 checks)
+# End-to-end against the running stack (39 checks; needs a fresh database, where the admin still signs in by email code)
 .venv/bin/python scripts/smoke_test.py
 ```
 
@@ -53,7 +53,7 @@ for s in auth customer audit; do (cd services/$s-service && PYTHONPATH=../../sha
 
 | Role | Can do |
 |---|---|
-| `admin` | Everything, including users, roles and the activity log |
+| `admin` | Everything, including users, roles, the activity log, and permanently deleting customers and users |
 | `manager` | All customer actions including block/unblock, employment and contacts; read the activity log; view users |
 | `agent` | View, add and edit customers |
 | `viewer` | View customers |

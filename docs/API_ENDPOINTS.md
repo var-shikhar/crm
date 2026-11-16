@@ -23,6 +23,7 @@ Full request and response schemas are in `docs/openapi/*.json` and, live, at `/<
 | POST | `/api/v1/users` | Create a user | `user:manage` | yes |
 | GET | `/api/v1/users/{user_id}` | Get a user | `user:read` | yes |
 | PATCH | `/api/v1/users/{user_id}` | Update name, status, roles or MFA requirement | `user:manage` | yes |
+| DELETE | `/api/v1/users/{user_id}` | Delete a user | `user:manage` | yes |
 | POST | `/api/v1/users/{user_id}/password` | Set a new password for a user | `user:manage` | yes |
 | POST | `/api/v1/users/{user_id}/mfa/reset` | Reset a user's second factor to email | `user:manage` | yes |
 | POST | `/api/v1/users/{user_id}/unlock` | Clear a failed-login lockout | `user:manage` | yes |
@@ -40,6 +41,7 @@ Full request and response schemas are in `docs/openapi/*.json` and, live, at `/<
 | POST | `/api/v1/customers` | Add a customer | `customer:create` | yes |
 | GET | `/api/v1/customers/{customer_id}` | Get a customer | `customer:read` | yes |
 | PATCH | `/api/v1/customers/{customer_id}` | Edit a customer | `customer:update` | yes |
+| DELETE | `/api/v1/customers/{customer_id}` | Delete a customer | `customer:delete` | yes |
 | POST | `/api/v1/customers/{customer_id}/block` | Block a customer | `customer:block` | yes |
 | POST | `/api/v1/customers/{customer_id}/unblock` | Unblock a customer | `customer:block` | yes |
 | GET | `/api/v1/customers/{customer_id}/employment` | List a customer's employment records | `customer:read` | yes |

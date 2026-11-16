@@ -89,6 +89,18 @@ Issues met in this round:
 
 Totals after this round: **37 tests**, **32 end-to-end checks**, **18 browser steps**, all passing (23:08).
 
+## 7a. Third round: fixes requested after trying the system (16 November 2026, on Windows)
+
+| # | Change | What was done | Verification |
+|---|---|---|---|
+| 21 | **Delete a customer** | New `DELETE /customers/{id}` behind a new permission `customer:delete` (in `admin` only by default). Refused for a blocked customer. The activity log keeps a copy of the record. UI: "Delete customer" on the customer page. | 1 new test; 3 new end-to-end checks |
+| 22 | **Delete a user** | New `DELETE /users/{id}` (`user:manage`). Refused for your own account and for the last active administrator. Signs the user out everywhere. The bootstrap administrator is now created only while no administrator exists, so a deleted one does not return at restart. UI: "Delete user" in the Manage panel. | 2 new tests; 3 new end-to-end checks |
+| 23 | **Form validation** | Shared rules in `shared/crm_common/validation.py` for names, places, phone, postal code and dates, used by the customer, employment, contact and user schemas; matching rules on the UI inputs; clearer error text. | 1 new test, 1 extended; 1 new end-to-end check |
+| 24 | **"Change password" reported as failing** | Not reproduced: the endpoint works for the bootstrap admin, after authenticator enrolment, and for created and admin-reset users. No code change. | In-process reproduction script |
+
+Totals after this round: **41 tests**, **39 end-to-end checks**, all passing. The browser UI was syntax-checked
+and its input patterns tested in Node, but not clicked through in a browser.
+
 ## 8. Documentation
 
 | # | Activity | Outcome |

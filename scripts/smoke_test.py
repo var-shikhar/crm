@@ -150,6 +150,30 @@ def main() -> None:
     status, body = call("POST", f"{url}/unblock", token=manager)
     check("manager unblocks the customer", status == 200 and body["status"] == "active", body)
 
+    print("Validation and deleting")
+    status, body = call("POST", "/crm/api/v1/customers", token=manager, body={
+        "first_name": "R2D2", "last_name": "Sharma", "email": f"bad.{run}@example.com", "phone": "call me"})
+    check("invalid name and phone are rejected (422)", status == 422 and len(body["detail"]) == 2, body)
+    status, doomed = call("POST", "/crm/api/v1/customers", token=manager, body={
+        "first_name": "Temp", "last_name": "Record", "email": f"temp.{run}@example.com"})
+    status, _ = call("DELETE", f"/crm/api/v1/customers/{doomed['id']}", token=manager)
+    check("manager cannot delete a customer (403)", status == 403)
+    status, _ = call("DELETE", f"/crm/api/v1/customers/{doomed['id']}", token=admin)
+    check("admin deletes a customer", status == 204)
+    status, _ = call("GET", f"/crm/api/v1/customers/{doomed['id']}", token=manager)
+    check("deleted customer is gone (404)", status == 404)
+    status, temp_user = call("POST", "/auth/api/v1/users", token=admin, body={
+        "email": f"temp.user.{run}@example.com", "full_name": "Smoke Temp", "password": password,
+        "roles": ["viewer"], "mfa_required": False})
+    _, temp_tokens = call("POST", "/auth/oauth/token", form={
+        "grant_type": "password", "client_id": "crm-web", "username": temp_user["email"], "password": password})
+    status, _ = call("DELETE", f"/auth/api/v1/users/{temp_user['id']}", token=admin)
+    check("admin deletes a user", status == 204)
+    status, _ = call("GET", "/crm/api/v1/customers", token=temp_tokens["access_token"])
+    check("deleted user's token stops working (401)", status == 401)
+    status, _ = call("DELETE", f"/auth/api/v1/users/{me['id']}", token=admin)
+    check("admin cannot delete their own account (400)", status == 400)
+
     print("Central authorization takes effect immediately")
     call("PATCH", f"/auth/api/v1/users/{users['agent']['id']}", token=admin, body={"is_active": False})
     status, _ = call("GET", url, token=agent)

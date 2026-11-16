@@ -58,7 +58,8 @@ app = FastAPI(
     summary="Customer records with employment history and related contacts.",
     description=(
         "All endpoints require a bearer access token from the auth service. The permission each "
-        "endpoint needs is stated in its description. A blocked customer is read-only until unblocked."
+        "endpoint needs is stated in its description. A blocked customer is read-only (and cannot be "
+        "deleted) until unblocked."
     ),
     lifespan=lifespan,
 )
@@ -239,6 +240,23 @@ def unblock_customer(customer_id: uuid.UUID, request: Request,
                resource_id=customer.id, details={"previous_reason": previous_reason})
     db.commit()
     return customer
+
+
+@customers.delete("/{customer_id}", status_code=204, summary="Delete a customer")
+def delete_customer(customer_id: uuid.UUID, request: Request,
+                    actor: Principal = Depends(authz.requires("customer:delete")), db: Session = Depends(get_db)):
+    """Requires `customer:delete`. Permanently removes the customer with its employment records and
+    related contacts; the activity log keeps a copy of the deleted record. Returns 409 if the customer is blocked."""
+    customer = _writable_customer(db, customer_id)
+    snapshot = CustomerOut.model_validate(customer).model_dump(
+        mode="json", exclude={"id", "created_at", "updated_at"}, exclude_none=True
+    )
+    audit.emit(db, "customer.deleted", request=request, actor=actor, resource_type="customer",
+               resource_id=customer.id,
+               details={"record": snapshot, "employment_records": len(customer.employments),
+                        "related_contacts": len(customer.contacts)})
+    db.delete(customer)
+    db.commit()
 
 
 # -------------------------------------------- employment & related contacts

@@ -152,10 +152,21 @@ grant themselves any other permission. They are in the `admin` role only.
 | Block / unblock | `customer:block` |
 | Add, edit, remove employment records | `customer:employment:manage` |
 | Add, edit, remove related contacts | `customer:contact:manage` |
+| Delete a customer permanently | `customer:delete` (in the `admin` role only by default) |
 
 Rules: email is unique (case-insensitive). Blocking requires a reason and records who and when. A
 blocked customer is read-only (the record and its employment/contacts) until unblocked; attempts
-return 409. Customers are never deleted through the API.
+return 409, including an attempt to delete it. Deleting removes the customer with its employment
+records and contacts; the activity log keeps a copy of the deleted record.
+
+Input rules are defined once in `shared/crm_common/validation.py` and enforced by the services: names
+and place names are letters of any script (no digits or symbols), phone numbers have 7 to 15 digits,
+dates of birth are between 1900 and today, and a current job cannot have an end date. The web UI
+repeats the same rules on its inputs only so the browser can point at the field before sending.
+
+Users can be deleted by anyone holding `user:manage`, except their own account and the last active
+administrator. The bootstrap administrator from `.env` is created only while no administrator exists,
+so a deleted or renamed one does not come back at the next start.
 
 ## 5. Activity logging
 
@@ -169,9 +180,9 @@ What is logged:
 |---|---|
 | Sign-in | challenge issued, MFA failed, login succeeded/failed (with reason), account locked, logout, refresh-token reuse |
 | Account | password changed/reset, MFA method changed/reset, unlocked |
-| Administration | user created/updated, role created/updated/deleted |
+| Administration | user created/updated/deleted, role created/updated/deleted |
 | Authorization | every denied permission check, with the permission and calling service |
-| Customers | searched, viewed, created, updated, blocked, unblocked; employment and contact viewed/added/updated/removed |
+| Customers | searched, viewed, created, updated, blocked, unblocked, deleted; employment and contact viewed/added/updated/removed |
 | Activity log | viewing and exporting the log are themselves logged, with the filters used |
 
 Not logged as audit events: reads of the user and role lists in the auth service. Those requests still

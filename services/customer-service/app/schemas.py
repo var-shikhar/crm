@@ -3,7 +3,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+from crm_common import validation
 
 EmploymentType = Literal["full_time", "part_time", "self_employed", "contract", "unemployed", "retired", "other"]
 
@@ -28,6 +30,13 @@ class CustomerCreate(_Strict):
     postal_code: str | None = Field(default=None, max_length=20)
     country: str | None = Field(default=None, max_length=100)
     notes: str | None = Field(default=None, max_length=5000)
+
+    # Validators are inherited, so they also cover the partial-update schema.
+    _names = field_validator("first_name", "last_name")(validation.person_name)
+    _phone = field_validator("phone")(validation.phone_number)
+    _birth = field_validator("date_of_birth")(validation.past_date)
+    _places = field_validator("city", "state", "country")(validation.place_name)
+    _postal = field_validator("postal_code")(validation.postal_code)
 
 
 class CustomerUpdate(CustomerCreate):
@@ -95,10 +104,15 @@ class EmploymentCreate(_Strict):
     annual_income: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
     currency: str | None = Field(default=None, min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
 
+    _text = field_validator("employer_name", "job_title")(validation.has_letter_or_digit)
+    _dates = field_validator("start_date", "end_date")(validation.not_before_1900)
+
     @model_validator(mode="after")
     def _dates_in_order(self):
         if self.start_date and self.end_date and self.end_date < self.start_date:
             raise ValueError("end_date cannot be before start_date")
+        if self.is_current and self.end_date:
+            raise ValueError("a current job cannot have an end date")
         return self
 
 
@@ -137,6 +151,9 @@ class ContactCreate(_Strict):
     phone: str | None = Field(default=None, max_length=40)
     is_emergency_contact: bool = False
     notes: str | None = Field(default=None, max_length=5000)
+
+    _names = field_validator("full_name", "relationship_type")(validation.person_name)
+    _phone = field_validator("phone")(validation.phone_number)
 
 
 class ContactUpdate(ContactCreate):

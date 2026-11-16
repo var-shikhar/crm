@@ -1,7 +1,10 @@
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints
+
+from crm_common import validation
 
 from .config import settings
 
@@ -35,16 +38,20 @@ class MeOut(UserOut):
     permissions: list[str]
 
 
+FullName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+                     AfterValidator(validation.person_name)]
+
+
 class UserCreate(BaseModel):
     email: EmailStr
-    full_name: str = Field(min_length=1, max_length=200)
+    full_name: FullName
     password: str = Password
     roles: list[str] = []
     mfa_required: bool = Field(default=True, description="If false, the account starts with no second factor")
 
 
 class UserUpdate(BaseModel):
-    full_name: str | None = Field(default=None, min_length=1, max_length=200)
+    full_name: FullName | None = None
     is_active: bool | None = None
     roles: list[str] | None = None
     mfa_required: bool | None = Field(default=None, description="Require a second factor at sign-in")

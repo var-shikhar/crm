@@ -3,7 +3,7 @@
   "info": {
     "title": "CRM Customer Service",
     "summary": "Customer records with employment history and related contacts.",
-    "description": "All endpoints require a bearer access token from the auth service. The permission each endpoint needs is stated in its description. A blocked customer is read-only until unblocked.",
+    "description": "All endpoints require a bearer access token from the auth service. The permission each endpoint needs is stated in its description. A blocked customer is read-only (and cannot be deleted) until unblocked.",
     "version": "1.0.0"
   },
   "paths": {
@@ -244,6 +244,46 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Customers"
+        ],
+        "summary": "Delete a customer",
+        "description": "Requires `customer:delete`. Permanently removes the customer with its employment records and\nrelated contacts; the activity log keeps a copy of the deleted record. Returns 409 if the customer is blocked.",
+        "operationId": "delete_customer_api_v1_customers__customer_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "customer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Customer Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
