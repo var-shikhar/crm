@@ -1,0 +1,106 @@
+name: crm
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  networks: [backend]
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run scripts/init-env.sh}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?}
+      CUSTOMER_DB_PASSWORD: ${CUSTOMER_DB_PASSWORD:?}
+      AUDIT_DB_PASSWORD: ${AUDIT_DB_PASSWORD:?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U audit_svc -d audit_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
+  mailpit:   # development inbox for one-time codes; point SMTP_* at a real relay in production
+    image: axllent/mailpit:v1.21
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
+    networks: [backend]
+
+  auth-service:
+    <<: *service-defaults
+    build: { context: ., dockerfile: services/auth-service/Dockerfile }
+    environment:
+      DATABASE_URL: postgresql+psycopg://auth_svc:${AUTH_DB_PASSWORD}@postgres:5432/auth_db
+      ROOT_PATH: /auth
+      ISSUER: ${ISSUER:-http://localhost:8080/auth}
+      JWT_PRIVATE_KEY_PATH: /keys/jwt_private.pem
+      SECRET_KEY: ${SECRET_KEY:?}
+      CUSTOMER_SERVICE_CLIENT_SECRET: ${CUSTOMER_SERVICE_CLIENT_SECRET:?}
+      AUDIT_SERVICE_CLIENT_SECRET: ${AUDIT_SERVICE_CLIENT_SECRET:?}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?}
+      AUDIT_URL: http://audit-service:8000
+      EMAIL_BACKEND: smtp
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      EMAIL_FROM: ${EMAIL_FROM:-CRM Security <no-reply@crm.example.com>}
+    volumes:
+      - auth-keys:/keys
+    depends_on:
+      postgres: { condition: service_healthy }
+      mailpit: { condition: service_started }
+
+  customer-service:
+    <<: *service-defaults
+    build: { context: ., dockerfile: services/customer-service/Dockerfile }
+    environment:
+      DATABASE_URL: postgresql+psycopg://customer_svc:${CUSTOMER_DB_PASSWORD}@postgres:5432/customer_db
+      ROOT_PATH: /crm
+      AUTH_URL: http://auth-service:8000
+      AUDIT_URL: http://audit-service:8000
+      CLIENT_ID: customer-service
+      CLIENT_SECRET: ${CUSTOMER_SERVICE_CLIENT_SECRET}
+    depends_on:
+      postgres: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+
+  audit-service:
+    <<: *service-defaults
+    build: { context: ., dockerfile: services/audit-service/Dockerfile }
+    environment:
+      DATABASE_URL: postgresql+psycopg://audit_svc:${AUDIT_DB_PASSWORD}@postgres:5432/audit_db
+      ROOT_PATH: /audit
+      AUTH_URL: http://auth-service:8000
+      CLIENT_ID: audit-service
+      CLIENT_SECRET: ${AUDIT_SERVICE_CLIENT_SECRET}
+    depends_on:
+      postgres: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+
+  gateway:
+    <<: *service-defaults
+    build: { context: ., dockerfile: gateway/Dockerfile }
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      auth-service: { condition: service_healthy }
+      customer-service: { condition: service_healthy }
+      audit-service: { condition: service_healthy }
+
+networks:
+  backend:
+
+volumes:
+  pgdata:
+  auth-keys:

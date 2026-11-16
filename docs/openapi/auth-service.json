@@ -1,0 +1,1825 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CRM Auth Service",
+    "summary": "Central identity, OAuth 2.0 token service, MFA and role-based access control.",
+    "description": "Issues and validates tokens, manages users, roles and permissions, and makes every authorization decision for the other CRM services via `POST /api/v1/authz/check`.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/oauth/token": {
+      "post": {
+        "tags": [
+          "OAuth 2.0"
+        ],
+        "summary": "Token endpoint",
+        "operationId": "token_oauth_token_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_token_oauth_token_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "OAuth error (`invalid_grant`, `invalid_request`, `unsupported_grant_type`, ...)"
+          },
+          "401": {
+            "description": "`invalid_client`"
+          },
+          "403": {
+            "description": "`mfa_required` (password grant, account has a second factor): body carries `mfa_token` and `mfa_method`; retry with the MFA grant and the one-time code"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/revoke": {
+      "post": {
+        "tags": [
+          "OAuth 2.0"
+        ],
+        "summary": "Revoke a token (RFC 7009) - sign out",
+        "description": "Revoking a refresh token ends that whole login session. Always answers 200.",
+        "operationId": "revoke_oauth_revoke_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_revoke_oauth_revoke_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/introspect": {
+      "post": {
+        "tags": [
+          "OAuth 2.0"
+        ],
+        "summary": "Token introspection (RFC 7662)",
+        "description": "For confidential service clients (HTTP Basic). Reflects live account state.",
+        "operationId": "introspect_oauth_introspect_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_introspect_oauth_introspect_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/.well-known/jwks.json": {
+      "get": {
+        "tags": [
+          "OAuth 2.0"
+        ],
+        "summary": "Public signing keys (JWKS)",
+        "operationId": "jwks__well_known_jwks_json_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/.well-known/oauth-authorization-server": {
+      "get": {
+        "tags": [
+          "OAuth 2.0"
+        ],
+        "summary": "Authorization server metadata (RFC 8414)",
+        "operationId": "metadata__well_known_oauth_authorization_server_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/authz/check": {
+      "post": {
+        "tags": [
+          "Authorization (service-to-service)"
+        ],
+        "summary": "Authenticate a token and authorize one action",
+        "description": "The single decision point every other service calls before acting.\n\nCaller authenticates with HTTP Basic (its client id and secret).\n`active=false` means the token is not valid (expired, revoked, user disabled);\n`allowed=false` means the token is valid but its owner lacks `permission`.\nDenials are recorded in the activity log.",
+        "operationId": "check_api_v1_authz_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthzCheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthzCheckOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "tags": [
+          "My account"
+        ],
+        "summary": "Current user, roles and effective permissions",
+        "operationId": "me_api_v1_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me/password": {
+      "post": {
+        "tags": [
+          "My account"
+        ],
+        "summary": "Change my password",
+        "description": "Signs out every session, including this one.",
+        "operationId": "change_password_api_v1_me_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePassword"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me/mfa/totp/setup": {
+      "post": {
+        "tags": [
+          "My account"
+        ],
+        "summary": "Start authenticator-app enrolment",
+        "description": "Returns a secret and QR code for Google Authenticator (or any TOTP app).\n\nNothing changes until the code is confirmed with `/mfa/totp/activate`.",
+        "operationId": "totp_setup_api_v1_me_mfa_totp_setup_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpSetupOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me/mfa/totp/activate": {
+      "post": {
+        "tags": [
+          "My account"
+        ],
+        "summary": "Confirm enrolment and switch to authenticator app",
+        "operationId": "totp_activate_api_v1_me_mfa_totp_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me/mfa/disable": {
+      "post": {
+        "tags": [
+          "My account"
+        ],
+        "summary": "Turn off my second factor",
+        "description": "Only allowed when an administrator has made MFA optional for this account. Requires the password.",
+        "operationId": "disable_mfa_api_v1_me_mfa_disable_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordConfirm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me/mfa/email": {
+      "post": {
+        "tags": [
+          "My account"
+        ],
+        "summary": "Use email codes as my second factor",
+        "description": "Requires the password, because this replaces any authenticator app.",
+        "operationId": "use_email_mfa_api_v1_me_mfa_email_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordConfirm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "List users",
+        "operationId": "list_users_api_v1_users_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Search name or email",
+              "title": "Q"
+            },
+            "description": "Search name or email"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserOut"
+                  },
+                  "title": "Response List Users Api V1 Users Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Create a user",
+        "operationId": "create_user_api_v1_users_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Get a user",
+        "operationId": "get_user_api_v1_users__user_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Update name, status, roles or MFA requirement",
+        "description": "Role and status changes apply to the user's very next request.\n\nYou cannot deactivate yourself or change your own roles or MFA requirement.\nMaking MFA required for a user who has none switches them to email codes;\nmaking it optional leaves their current second factor in place until they turn it off.",
+        "operationId": "update_user_api_v1_users__user_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}/password": {
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Set a new password for a user",
+        "description": "Signs the user out of every session.",
+        "operationId": "set_password_api_v1_users__user_id__password_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPassword"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}/mfa/reset": {
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Reset a user's second factor to email",
+        "description": "For a lost authenticator device. Removes the TOTP secret and signs the user out.",
+        "operationId": "reset_mfa_api_v1_users__user_id__mfa_reset_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}/unlock": {
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Clear a failed-login lockout",
+        "operationId": "unlock_api_v1_users__user_id__unlock_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/permissions": {
+      "get": {
+        "tags": [
+          "Roles & permissions"
+        ],
+        "summary": "Permission catalogue",
+        "operationId": "list_permissions_api_v1_permissions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PermissionOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Permissions Api V1 Permissions Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/roles": {
+      "get": {
+        "tags": [
+          "Roles & permissions"
+        ],
+        "summary": "List roles",
+        "operationId": "list_roles_api_v1_roles_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RoleOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Roles Api V1 Roles Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Roles & permissions"
+        ],
+        "summary": "Create a role",
+        "operationId": "create_role_api_v1_roles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/roles/{role_id}": {
+      "patch": {
+        "tags": [
+          "Roles & permissions"
+        ],
+        "summary": "Update a role's description or permissions",
+        "description": "Permission changes apply immediately to everyone holding the role.",
+        "operationId": "update_role_api_v1_roles__role_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "role_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Role Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Roles & permissions"
+        ],
+        "summary": "Delete a role",
+        "description": "Refused while any user still holds the role.",
+        "operationId": "delete_role_api_v1_roles__role_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "role_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Role Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuthzCheckIn": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "permission": {
+            "type": "string",
+            "title": "Permission"
+          },
+          "context": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Context",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "permission"
+        ],
+        "title": "AuthzCheckIn"
+      },
+      "AuthzCheckOut": {
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "allowed": {
+            "type": "boolean",
+            "title": "Allowed"
+          },
+          "principal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrincipalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "active",
+          "allowed"
+        ],
+        "title": "AuthzCheckOut"
+      },
+      "Body_introspect_oauth_introspect_post": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "Body_introspect_oauth_introspect_post"
+      },
+      "Body_revoke_oauth_revoke_post": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "A refresh token or an access token"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Secret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "Body_revoke_oauth_revoke_post"
+      },
+      "Body_token_oauth_token_post": {
+        "properties": {
+          "grant_type": {
+            "type": "string",
+            "title": "Grant Type",
+            "description": "`password`, `urn:crm:params:oauth:grant-type:mfa-otp`, `refresh_token` or `client_credentials`"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username",
+            "description": "User email (password grant)"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "mfa_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mfa Token",
+            "description": "From the `mfa_required` response (MFA grant)"
+          },
+          "otp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Otp",
+            "description": "6-digit code from email or authenticator app (MFA grant)"
+          },
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id",
+            "description": "Public clients; confidential clients use HTTP Basic"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Secret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "grant_type"
+        ],
+        "title": "Body_token_oauth_token_post"
+      },
+      "ChangePassword": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "title": "Current Password"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 10,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "ChangePassword"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "MeOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "mfa_required": {
+            "type": "boolean",
+            "title": "Mfa Required"
+          },
+          "mfa_method": {
+            "type": "string",
+            "title": "Mfa Method"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "is_locked": {
+            "type": "boolean",
+            "title": "Is Locked"
+          },
+          "last_login_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Permissions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "full_name",
+          "is_active",
+          "mfa_required",
+          "mfa_method",
+          "roles",
+          "is_locked",
+          "last_login_at",
+          "created_at",
+          "permissions"
+        ],
+        "title": "MeOut"
+      },
+      "OtpIn": {
+        "properties": {
+          "otp": {
+            "type": "string",
+            "maxLength": 10,
+            "minLength": 6,
+            "title": "Otp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "otp"
+        ],
+        "title": "OtpIn"
+      },
+      "PasswordConfirm": {
+        "properties": {
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "title": "PasswordConfirm"
+      },
+      "PermissionOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "description"
+        ],
+        "title": "PermissionOut"
+      },
+      "PrincipalOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Roles",
+            "default": []
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Permissions",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type"
+        ],
+        "title": "PrincipalOut"
+      },
+      "RoleCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 2,
+            "pattern": "^[a-z][a-z0-9_-]*$",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Description",
+            "default": ""
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Permissions",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "RoleCreate"
+      },
+      "RoleOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "is_system": {
+            "type": "boolean",
+            "title": "Is System"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Permissions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "is_system",
+          "permissions"
+        ],
+        "title": "RoleOut"
+      },
+      "RoleUpdate": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "permissions": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permissions"
+          }
+        },
+        "type": "object",
+        "title": "RoleUpdate"
+      },
+      "SetPassword": {
+        "properties": {
+          "new_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 10,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_password"
+        ],
+        "title": "SetPassword"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "Bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In"
+          },
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "expires_in"
+        ],
+        "title": "TokenResponse"
+      },
+      "TotpSetupOut": {
+        "properties": {
+          "secret": {
+            "type": "string",
+            "title": "Secret"
+          },
+          "otpauth_uri": {
+            "type": "string",
+            "title": "Otpauth Uri"
+          },
+          "qr_svg": {
+            "type": "string",
+            "title": "Qr Svg"
+          }
+        },
+        "type": "object",
+        "required": [
+          "secret",
+          "otpauth_uri",
+          "qr_svg"
+        ],
+        "title": "TotpSetupOut"
+      },
+      "UserCreate": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "full_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Full Name"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 10,
+            "title": "Password"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Roles",
+            "default": []
+          },
+          "mfa_required": {
+            "type": "boolean",
+            "title": "Mfa Required",
+            "description": "If false, the account starts with no second factor",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "full_name",
+          "password"
+        ],
+        "title": "UserCreate"
+      },
+      "UserOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "mfa_required": {
+            "type": "boolean",
+            "title": "Mfa Required"
+          },
+          "mfa_method": {
+            "type": "string",
+            "title": "Mfa Method"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "is_locked": {
+            "type": "boolean",
+            "title": "Is Locked"
+          },
+          "last_login_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "full_name",
+          "is_active",
+          "mfa_required",
+          "mfa_method",
+          "roles",
+          "is_locked",
+          "last_login_at",
+          "created_at"
+        ],
+        "title": "UserOut"
+      },
+      "UserUpdate": {
+        "properties": {
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "roles": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roles"
+          },
+          "mfa_required": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mfa Required",
+            "description": "Require a second factor at sign-in"
+          }
+        },
+        "type": "object",
+        "title": "UserUpdate"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "/auth"
+    }
+  ]
+}
