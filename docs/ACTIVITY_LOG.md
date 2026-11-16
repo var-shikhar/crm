@@ -1,7 +1,7 @@
 # Activity log: planning to verification
 
 Session date: 14 November 2026 (IST). Work started 22:28. Built by Claude Code (model Claude Fable 5.2)
-working in `/Users/himanshu/Desktop/Langraph/crm-system`. Steps are in the order they happened.
+working in the `crm-system` folder. Steps are in the order they happened.
 Only two clock times were captured (22:28 start, 22:47 at documentation), so individual steps are not timed.
 
 ## 1. Planning

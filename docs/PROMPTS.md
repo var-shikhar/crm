@@ -5,8 +5,8 @@ Claude Fable 5.2) on 14 November 2026. This file records the prompts that drove 
 the agent did in response, phase by phase. User prompts are quoted as written; the agent's side is
 summarised, with its own progress messages quoted where they mark a step.
 
-The complete transcript, with every tool call and its output, is kept by Claude Code at
-`~/.claude/projects/-Users-himanshu-Desktop-Langraph/649434f8-2ace-4d94-a8fa-09d363404404.jsonl`.
+The complete transcript, with every tool call and its output, is kept by Claude Code in its
+local session history (session `649434f8-2ace-4d94-a8fa-09d363404404`).
 
 ---
 
