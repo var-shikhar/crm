@@ -119,19 +119,22 @@ function shell(content) {
   state.notice = null;
   const active = state.view === 'customer' ? 'customers' : state.view;
   return `
+    <a class="skip" href="#main">Skip to content</a>
     <header class="top">
       <span class="brand">CRM</span>
-      <nav>${NAV.filter(([, , p]) => !p || can(p)).map(([v, label]) =>
-        `<button class="link ${v === active ? 'active' : ''}" data-action="nav" data-view="${v}">${label}</button>`).join('')}</nav>
+      <nav aria-label="Main">${NAV.filter(([, , p]) => !p || can(p)).map(([v, label]) =>
+        `<button class="link ${v === active ? 'active' : ''}" ${v === active ? 'aria-current="page"' : ''} data-action="nav" data-view="${v}">${label}</button>`).join('')}</nav>
       <div class="who small"><div>${esc(state.me.full_name)}</div><div class="muted">${esc(state.me.roles.join(', ') || 'no role')}</div></div>
       <button data-action="logout">Sign out</button>
     </header>
-    <main>${notice}${content}</main>`;
+    <main id="main" tabindex="-1">${notice}${content}</main>`;
 }
 
 async function render() {
-  if (!state.me) { $app.innerHTML = loginView(); focusFirst(); return; }
+  if (!state.me) { document.title = 'Sign in · CRM'; $app.innerHTML = loginView(); focusFirst(); return; }
   const view = VIEWS[state.view] || VIEWS.customers;
+  const current = NAV.find(([v]) => v === (state.view === 'customer' ? 'customers' : state.view)) || NAV[0];
+  document.title = `${current[1]} · CRM`;
   try {
     $app.innerHTML = shell(await view());
   } catch (err) {
@@ -263,7 +266,7 @@ async function customerView() {
       ${editable ? '<button class="primary" type="submit">Save changes</button>' : ''}</div></form>
 
     <div class="card stack"><h2>Employment</h2>
-      ${jobRows ? `<div class="table-wrap"><table><thead><tr><th>Employer</th><th>Title</th><th>Type</th><th>Period</th><th>Annual income</th><th></th></tr></thead><tbody>${jobRows}</tbody></table></div>` : '<p class="muted">No employment records.</p>'}
+      ${jobRows ? `<div class="table-wrap"><table><thead><tr><th>Employer</th><th>Title</th><th>Type</th><th>Period</th><th>Annual income</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${jobRows}</tbody></table></div>` : '<p class="muted">No employment records.</p>'}
       ${canJobs ? `<form data-form="add-employment" class="stack"><div class="grid">
           ${field('Employer', 'employer_name', '', 'required maxlength="200" pattern=".*[\\p{L}\\p{N}].*" title="Must contain a letter or digit"')}
           ${field('Job title', 'job_title', '', 'maxlength="200" pattern=".*[\\p{L}\\p{N}].*" title="Must contain a letter or digit"')}
@@ -276,7 +279,7 @@ async function customerView() {
     </div>
 
     <div class="card stack"><h2>Related contacts</h2>
-      ${contactRows ? `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Relationship</th><th>Email</th><th>Phone</th><th>Notes</th><th></th></tr></thead><tbody>${contactRows}</tbody></table></div>` : '<p class="muted">No related contacts.</p>'}
+      ${contactRows ? `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Relationship</th><th>Email</th><th>Phone</th><th>Notes</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${contactRows}</tbody></table></div>` : '<p class="muted">No related contacts.</p>'}
       ${canContacts ? `<form data-form="add-contact" class="stack"><div class="grid">
           ${field('Full name', 'full_name', '', `required maxlength="200" ${NAME_RULE}`)}${field('Relationship', 'relationship_type', '', `required maxlength="64" ${NAME_RULE} placeholder="spouse, parent, colleague…"`)}
           ${field('Email', 'email', '', 'type="email" maxlength="254"')}${field('Phone', 'phone', '', PHONE_RULE)}${field('Notes', 'notes', '', 'maxlength="5000"')}</div>
@@ -325,7 +328,7 @@ async function auditView() {
       <button type="button" data-action="export-audit">Download CSV</button>
     </form>
     <div class="card table-wrap">
-      ${rows ? `<table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Record</th><th>Outcome</th><th>IP</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="muted">No activity matches these filters.</p>'}
+      ${rows ? `<table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Record</th><th>Outcome</th><th>IP</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="muted">No activity matches these filters.</p>'}
       ${pager(data.page, pages, data.total)}
     </div>`;
 }
@@ -370,7 +373,7 @@ async function usersView() {
         <div>${roleChecks(roles)}</div>
         <label class="check"><input type="checkbox" name="mfa_required" checked> Require a second factor at sign-in (recommended)</label>
         <button class="primary" type="submit">Create user</button></form>` : ''}
-    <div class="card table-wrap"><table><thead><tr><th>User</th><th>Roles</th><th>Second factor</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <div class="card table-wrap"><table><thead><tr><th>User</th><th>Roles</th><th>Second factor</th><th>Status</th><th>Last sign-in</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 // ---------------------------------------------------------------------- roles
@@ -395,7 +398,7 @@ async function rolesView() {
     ${manage && !editing ? `<form class="card stack" data-form="create-role"><h2>New role</h2><div class="grid">
         ${field('Name (lowercase, e.g. records_officer)', 'name', '', 'required pattern="[a-z][a-z0-9_-]*"')}${field('Description', 'description')}</div>
         <div>${permChecks(perms)}</div><button class="primary" type="submit">Create role</button></form>` : ''}
-    <div class="card table-wrap"><table><thead><tr><th>Role</th><th>Permissions</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <div class="card table-wrap"><table><thead><tr><th>Role</th><th>Permissions</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 // ------------------------------------------------------------------- security
