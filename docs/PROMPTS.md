@@ -1,12 +1,14 @@
 # Prompt and interaction log
 
-The CRM in this repository was built in one working session with a coding agent (Claude Code, model
-Claude Fable 5.2) on 14 November 2026. This file records the prompts that drove the build and what
-the agent did in response, phase by phase. User prompts are quoted as written; the agent's side is
-summarised, with its own progress messages quoted where they mark a step.
+The CRM in this repository was built with a coding agent (Claude Code, model Claude Fable 5.2): the
+first build in one working session on 14 November 2026, then follow-up rounds on 16 November 2026.
+This file records the prompts that drove the work and what the agent did in response, phase by
+phase. User prompts are quoted as written; the agent's side is summarised, with its own progress
+messages quoted where they mark a step.
 
-The complete transcript, with every tool call and its output, is kept by Claude Code in its
-local session history (session `649434f8-2ace-4d94-a8fa-09d363404404`).
+The complete transcript of the first session, with every tool call and its output, is kept by
+Claude Code in its local session history (session `649434f8-2ace-4d94-a8fa-09d363404404`). The later
+rounds ran in separate sessions.
 
 ---
 
@@ -169,7 +171,118 @@ After this round: 37 tests, 32 end-to-end checks and 18 browser steps, all passi
 ### Phase 12: service review
 
 The agent opened a review of the auth service with three decisions to keep or change (per-request
-authorization calls, the password grant, account lockout). Not yet carried out when this copy was packaged.
+authorization calls, the password grant, account lockout). The review was not taken further in the recorded
+sessions; all three stand as described in ARCHITECTURE.md.
+
+---
+
+## Round 3: fixes after trying the system (16 November 2026)
+
+The wording of the prompts in this round was not kept, so they are summarised, not quoted. After
+using the running system the user asked for: deleting a customer, deleting a user, stricter checks
+on form input, and a look at "change password", which had appeared to fail.
+
+### Phase 13: deletion, validation, password check
+
+Added `DELETE /customers/{id}` behind a new permission held by `admin` only, `DELETE /users/{id}`
+(refused for your own account and for the last active administrator), and one shared set of input
+rules used by the services and repeated in the UI. The password problem could not be reproduced and
+no code was changed for it. After this round: 41 tests, 39 end-to-end checks.
+
+### Phase 14: repository and UI polish
+
+The work was committed to git for the first time. Paths of the local machine were removed from the
+documents, and the web UI was adjusted for phones and for accessibility (details in ACTIVITY_LOG.md,
+section 10). The prompts for these steps were not kept either.
+
+---
+
+## Prompt 4: where the project stands, and two tasks
+
+> So how far are we on this project ?
+
+Followed, while the agent was reading the repository, by:
+
+> Have few tasks planned as:
+>
+> * Admin users can be logged-in without the MFA or Any code (or rather we should be having a permission which allows any account to get logged-in without the code: much better)
+> * Documentation:
+>   * Is the documentation clear cut and says exactly about the project
+>   * Is it divided based on its role
+>   * Is it satisfies assignments task (assignment given below)'
+
+The message ended with the brief from Prompt 1, repeated in full.
+
+### Phase 15: sign-in without a code, by permission
+
+The agent took the second form of the request, a permission, and added `auth:mfa:skip`. Decisions
+taken while building it:
+
+| Question | Decision |
+|---|---|
+| Who holds it | Any role an administrator puts it in. `admin` holds every permission, so administrators get it without further action, which is the first form of the request. |
+| Account with an authenticator app or email codes set up | The permission wins; no code is asked. The account's own setting is left alone, so the code returns when the permission goes. |
+| Per-user "MFA optional" from round 2 | Kept as it is. The two are independent. |
+| Traceability | The sign-in event records that the code was skipped by permission, and the user list shows it. |
+| Risk | Stated in ARCHITECTURE.md: an administrator's password alone now opens the most powerful accounts. |
+
+Five existing tests that used the administrator to exercise the code step were moved to an ordinary
+user, and four were added.
+
+> "Sign-in permission is coded and tests are written; I'm now getting the test suite to run on this machine (Windows is blocking one of the freshly installed Python libraries)."
+
+> "All 45 unit tests pass with the new permission. Now updating the web UI and the end-to-end script, then the documentation review."
+
+> "Feature verified end to end (41 checks pass on a throwaway copy of the stack). Fixing a path glitch in the regenerated API spec, then auditing the docs against the assignment."
+
+### Phase 16: documentation review
+
+The agent read every document against the three questions and the brief. Answers:
+
+| Question | Answer |
+|---|---|
+| Clear, and says exactly what the project is? | Mostly. The content was accurate and plain about limits, but several statements had gone stale (test counts, "nothing was committed", a prompt log that stopped at round 2). Corrected. |
+| Divided by role? | By topic, yes; by microservice, no. Added one page per service and a table in the README saying what each document is for. |
+| Satisfies the brief? | Each of the four features and three records is present. Two gaps were closed (per-service documentation, a map from the brief to the repository). One remains and is stated wherever it matters: the container deployment is configured and validated but has never been run. |
+
+---
+
+## Prompt 5: who sees users and activity
+
+> Got few points as well:
+>
+> * I think the users should only be visible only to admins
+> * Activity Logs should be user based (account: same account activity to user, unless its an admin account)
+
+### Phase 17: visibility
+
+| Question | Decision |
+|---|---|
+| What makes an account "admin" here | Holding the permission (`user:read`, `audit:read`), which by default only the `admin` role does. The `manager` role lost both. |
+| Who may open the activity log | Every signed-in user. Without `audit:read` the audit service limits the query to the caller's own account. |
+| What counts as the account's activity | What the user did, and what was done to their user record (sign-in attempts, changes by an administrator). |
+| How the audit service learns who is calling | The auth service's decision endpoint can now be asked to authenticate a token without a permission. |
+| The database that already existed | Default roles are seeded once, so its `manager` role was edited through the API. |
+
+> "Both changes are coded (users list admin-only, activity log scoped to your own account unless you hold `audit:read`); fixing an import and running the tests now."
+
+> "End-to-end passes (47 checks). Now fixing the generated endpoint index label, updating the docs, and applying the change to your running stack."
+
+After this round: 48 tests, 47 end-to-end checks.
+
+---
+
+## Prompt 6: tighten the documents and push
+
+> Few Updates:
+>
+> - Make sure your documentation is crisp and easy to follow
+> - Push the current changes (previous task if done)
+
+### Phase 18: documentation pass and push
+
+The README was reordered and shortened, the longest passages of ARCHITECTURE.md were turned into
+tables, and the work of prompts 4 and 5 was committed and pushed.
 
 ---
 
@@ -180,5 +293,6 @@ authorization calls, the password grant, account lockout). Not yet carried out w
 | Working system | `./scripts/run-local.sh start`, then http://localhost:8080 |
 | Activity from planning to deployment | [ACTIVITY_LOG.md](ACTIVITY_LOG.md) |
 | Architecture | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| Documentation per microservice | [services/](services) |
 | API specification | [API.md](API.md), [API_ENDPOINTS.md](API_ENDPOINTS.md), [openapi/](openapi) |
 | Deployment | [DEPLOYMENT.md](DEPLOYMENT.md) |

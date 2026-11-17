@@ -16,6 +16,18 @@ Secrets (service client secrets, encryption key, admin password) are generated o
 `scripts/dev_gateway.py` mirrors the nginx rules (prefix routing, internal endpoints hidden, security
 headers) but has no rate limiting. It is a development tool, not a production gateway.
 
+### On Windows without WSL
+
+`run-local.sh` expects a POSIX layout (`.venv/bin/python`) and `uv`, so it does not run as it is in
+Git Bash. The same four processes can be started by hand from a virtualenv made with
+`python -m venv .venv`, using the commands and environment variables in the `start` function of the
+script (with `.venv/Scripts/python.exe`, and Windows paths in `DATABASE_URL`). The system was run and
+checked this way on Windows 11. If Windows application control blocks SQLAlchemy's compiled
+extensions, install it as pure Python: `pip install --no-binary sqlalchemy sqlalchemy`.
+
+`scripts/smoke_test.py` reads the admin password and the emailed codes from `.local/`. Set
+`CRM_LOCAL_DIR` and `BASE_URL` to point it at a stack that keeps them elsewhere.
+
 ## 2. Containers (configured; not run)
 
 Status, stated plainly: the container setup is written and `docker compose config` validates it. The three

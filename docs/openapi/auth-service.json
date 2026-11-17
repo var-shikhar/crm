@@ -42,7 +42,7 @@
             "description": "`invalid_client`"
           },
           "403": {
-            "description": "`mfa_required` (password grant, account has a second factor): body carries `mfa_token` and `mfa_method`; retry with the MFA grant and the one-time code"
+            "description": "`mfa_required` (password grant, account has a second factor and no `auth:mfa:skip` permission): body carries `mfa_token` and `mfa_method`; retry with the MFA grant and the one-time code"
           },
           "422": {
             "description": "Validation Error",
@@ -181,7 +181,7 @@
           "Authorization (service-to-service)"
         ],
         "summary": "Authenticate a token and authorize one action",
-        "description": "The single decision point every other service calls before acting.\n\nCaller authenticates with HTTP Basic (its client id and secret).\n`active=false` means the token is not valid (expired, revoked, user disabled);\n`allowed=false` means the token is valid but its owner lacks `permission`.\nDenials are recorded in the activity log.",
+        "description": "The single decision point every other service calls before acting.\n\nCaller authenticates with HTTP Basic (its client id and secret).\n`active=false` means the token is not valid (expired, revoked, user disabled);\n`allowed=false` means the token is valid but its owner lacks `permission`.\nWithout `permission` the call only authenticates: any valid token is allowed.\nDenials are recorded in the activity log.",
         "operationId": "check_api_v1_authz_check_post",
         "requestBody": {
           "content": {
@@ -1061,8 +1061,16 @@
             "title": "Token"
           },
           "permission": {
-            "type": "string",
-            "title": "Permission"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permission",
+            "description": "Permission the action needs. Omit to only authenticate the token, for an endpoint any signed-in caller may use on their own data."
           },
           "context": {
             "additionalProperties": true,
@@ -1073,8 +1081,7 @@
         },
         "type": "object",
         "required": [
-          "token",
-          "permission"
+          "token"
         ],
         "title": "AuthzCheckIn"
       },
@@ -1310,6 +1317,11 @@
             "type": "string",
             "title": "Mfa Method"
           },
+          "mfa_skipped": {
+            "type": "boolean",
+            "title": "Mfa Skipped",
+            "description": "A role grants `auth:mfa:skip`: sign-in asks for no code"
+          },
           "roles": {
             "items": {
               "type": "string"
@@ -1354,6 +1366,7 @@
           "is_active",
           "mfa_required",
           "mfa_method",
+          "mfa_skipped",
           "roles",
           "is_locked",
           "last_login_at",
@@ -1709,6 +1722,11 @@
             "type": "string",
             "title": "Mfa Method"
           },
+          "mfa_skipped": {
+            "type": "boolean",
+            "title": "Mfa Skipped",
+            "description": "A role grants `auth:mfa:skip`: sign-in asks for no code"
+          },
           "roles": {
             "items": {
               "type": "string"
@@ -1746,6 +1764,7 @@
           "is_active",
           "mfa_required",
           "mfa_method",
+          "mfa_skipped",
           "roles",
           "is_locked",
           "last_login_at",

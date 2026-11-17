@@ -59,7 +59,7 @@
           "Activity log"
         ],
         "summary": "Search the activity log",
-        "description": "Newest first. Viewing the log is itself recorded.",
+        "description": "Newest first. Viewing the log is itself recorded.\n\nWith `audit:read` you see everyone's activity. Without it you see only your own account's:\nyour actions, and actions on your user record.",
         "operationId": "list_events_api_v1_events_get",
         "security": [
           {
@@ -271,7 +271,7 @@
           "Activity log"
         ],
         "summary": "Download the activity log as CSV",
-        "description": "Same filters as the search. Newest first, at most 50,000 rows; the `X-Truncated` header is\n`true` when more matched. The export is itself recorded, with the filters used.",
+        "description": "Same filters and the same visibility rule as the search. Newest first, at most 50,000 rows;\nthe `X-Truncated` header is `true` when more matched. The export is itself recorded, with the filters used.",
         "operationId": "export_events_api_v1_events_export_get",
         "security": [
           {
@@ -456,6 +456,7 @@
           "Activity log"
         ],
         "summary": "Get one event",
+        "description": "An event outside what the caller may see answers 404, the same as one that does not exist.",
         "operationId": "get_event_api_v1_events__event_id__get",
         "security": [
           {

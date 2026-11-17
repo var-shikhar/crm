@@ -1,8 +1,11 @@
 # Activity log: planning to verification
 
-Session date: 14 November 2026 (IST). Work started 22:28. Built by Claude Code (model Claude Fable 5.2)
-working in the `crm-system` folder. Steps are in the order they happened.
-Only two clock times were captured (22:28 start, 22:47 at documentation), so individual steps are not timed.
+Built by Claude Code (model Claude Fable 5.2) working in the `crm-system` folder, in two stretches:
+the first build on 14 November 2026 (IST, started 22:28; sections 1 to 8) and follow-up rounds on
+16 November 2026 on Windows (sections 9 to 12). Steps are in the order they happened. Step numbers
+are the order of work, so the documentation steps 16 and 17 appear in section 8.
+Only two clock times were captured on the first day (22:28 start, 22:47 at documentation), so
+individual steps are not timed.
 
 ## 1. Planning
 
@@ -61,8 +64,8 @@ Defects found and fixed during verification:
 
 | Check | How | Result |
 |---|---|---|
-| Unit/API tests | `pytest` per service | 18 auth + 9 customer + 5 audit = **32 passed** (37 after section 7) |
-| End-to-end, real processes over HTTP | `scripts/smoke_test.py` | **25 of 25 checks passed** (32 after section 7) |
+| Unit/API tests | `pytest` per service | 18 auth + 9 customer + 5 audit = **32 passed** (37 after section 7, 41 after section 9, 45 after section 11, 48 after section 12) |
+| End-to-end, real processes over HTTP | `scripts/smoke_test.py` | **25 of 25 checks passed** (32 after section 7, 39 after section 9, 41 after section 11, 47 after section 12) |
 | UI in a real browser | Headless Chrome driven over its debugging protocol (throwaway profile): sign-in, wrong password, MFA code, add customer, add employment and contact, block, unblock, activity log, users, roles, QR code for authenticator, sign-out | **15 of 15 steps passed**; no script errors or CSP violations |
 | Container config | `docker compose config` | Valid. Stack **not run** (see step 12). |
 
@@ -89,7 +92,17 @@ Issues met in this round:
 
 Totals after this round: **37 tests**, **32 end-to-end checks**, **18 browser steps**, all passing (23:08).
 
-## 7a. Third round: fixes requested after trying the system (16 November 2026, on Windows)
+## 8. Documentation
+
+| # | Activity | Outcome |
+|---|---|---|
+| 16 | `scripts/export_openapi.py`. | OpenAPI JSON per service and a generated endpoint index, taken from the running services. |
+| 17 | README, ARCHITECTURE, API, DEPLOYMENT, this log, PROMPTS. | In `docs/`. |
+
+At the end of the first day nothing had been committed to git. The first commit was made on
+16 November (section 10).
+
+## 9. Third round: fixes requested after trying the system (16 November 2026, on Windows)
 
 | # | Change | What was done | Verification |
 |---|---|---|---|
@@ -101,11 +114,69 @@ Totals after this round: **37 tests**, **32 end-to-end checks**, **18 browser st
 Totals after this round: **41 tests**, **39 end-to-end checks**, all passing. The browser UI was syntax-checked
 and its input patterns tested in Node, but not clicked through in a browser.
 
-## 8. Documentation
+## 10. Repository and web UI polish (16 November 2026)
 
 | # | Activity | Outcome |
 |---|---|---|
-| 16 | `scripts/export_openapi.py`. | OpenAPI JSON per service and a generated endpoint index, taken from the running services. |
-| 17 | README, ARCHITECTURE, API, DEPLOYMENT, this log, PROMPTS. | In `docs/`. |
+| 25 | First commits. | The build so far was committed, then the third round as its own commit. |
+| 26 | Removed paths of the local machine from the documents. | `ACTIVITY_LOG.md` and `PROMPTS.md` no longer name local folders. |
+| 27 | Web UI for phones and accessibility. | Layout for screens under 640px, sticky header, styling for invalid fields, skip link, `aria-current`, labelled action columns, a title per page, favicon, colour scheme, `noscript` text, print layout. No server change. |
 
-Nothing was committed to git.
+## 11. Fourth round: sign-in without a code by permission, and a documentation review (16 November 2026)
+
+Requested by the user: administrators should sign in without a code, better done as a permission
+that lets any account do so; and a check of the documentation against the brief.
+
+| # | Change | What was done | Verification |
+|---|---|---|---|
+| 28 | **Permission `auth:mfa:skip`** | New permission in the catalogue. An account holding it through any role gets its tokens from the password step, whatever second factor it has. `admin` holds every permission, so administrators now sign in with email and password only. The per-user "MFA optional" setting from section 7 is unchanged. Users and "my account" responses gain `mfa_skipped`. The sign-in event records `mfa_skipped_by`. UI: "no code asked" in the users list, a notice on "My security". | 4 new tests, 5 moved from the administrator to an ordinary user; 2 new end-to-end checks |
+| 29 | **Documentation review against the brief** | Findings and fixes below. | Links and figures checked against the code |
+
+Documentation findings:
+
+| Finding | Fix |
+|---|---|
+| The brief asks for documentation "for all microservice you build". The documents were split by topic only (architecture, API, deployment), so no single page described one service. | Added `docs/services/auth-service.md`, `customer-service.md` and `audit-service.md`. |
+| Nothing mapped the brief to the place where each point is met. | Added that table, and a one-line purpose for each document, to the README. |
+| This log said nothing was committed, numbered a section "7a" after 7, and its header gave one date. | Corrected. |
+| The prompt log ended at the second round. | Added the third and fourth rounds. The wording of the third-round prompts was not kept; that is stated there. |
+| The README gave old test counts and said the end-to-end test needs a fresh database. | Corrected: 45 tests, 41 checks, no such condition. |
+| `run-local.sh` does not run on Windows without WSL. | Stated in the README and DEPLOYMENT.md with the manual route. The script itself is unchanged. |
+
+Issues met in this round:
+
+| Issue | Resolution |
+|---|---|
+| Windows application control refused to load SQLAlchemy's compiled extensions in a fresh virtualenv. | Installed SQLAlchemy as pure Python (`--no-binary sqlalchemy`). No code change. |
+| The end-to-end test could not use the stack already running on ports 8001 to 8080 without adding test records to its database, and that stack ran the old code. | Started a second copy on ports 8101 to 8180 with its own throwaway data directory, ran the test against it, stopped it. `smoke_test.py` gained `CRM_LOCAL_DIR` for this. |
+| OpenAPI files exported from that copy carried a wrong server URL, because Git Bash rewrote the `--root-path` argument. | Corrected the three `servers.url` values back to `/auth`, `/crm`, `/audit`. |
+
+Totals after this round: **45 tests** (28 auth, 11 customer, 6 audit) and **41 end-to-end checks**, all
+passing. The browser UI was syntax-checked, not clicked through. The container stack is still not run.
+
+## 12. Fifth round: who sees users and activity (16 November 2026)
+
+Requested by the user: the list of users should be visible to administrators only, and the activity
+log should show each user the activity of their own account, with administrators seeing everything.
+
+| # | Change | What was done | Verification |
+|---|---|---|---|
+| 30 | **Users visible to administrators only** | `user:read` taken out of the default `manager` role, so only `admin` holds it. The permission still exists and can be granted on purpose. The "Users" page already appears only for holders. | 1 new test; 1 new end-to-end check |
+| 31 | **Activity log per account** | `audit:read` now means "everyone's activity" and was taken out of `manager`. Reading the log is open to every signed-in user, limited in the database query to events they caused and events on their own user record. Applies to search, single event (404 outside the view) and CSV export. Reads are logged with `scope: all` or `own`. `authz/check` accepts a call without a permission, which only authenticates the token. UI: "Activity" is shown to everyone, titled "My activity" without `audit:read`, and the filter by user email is shown to administrators only. | 2 new tests, 1 adjusted; 6 new end-to-end checks, 1 replaced |
+| 32 | **Existing local database** | Default roles are seeded once, so the `manager` role in the running local database was edited through the API (logged as `role.updated`), and the auth and audit services were restarted with the new code. | Checked through the gateway |
+
+Decisions made without asking: "admin" was read as "holds `audit:read` / `user:read`", so the rule
+stays a permission and not a role name; "own account" includes what others did to the account, not
+only what its user did.
+
+Totals after this round: **48 tests** (30 auth, 11 customer, 7 audit) and **47 end-to-end checks**, all
+passing against a second copy of the stack on spare ports. The browser UI was syntax-checked, not
+clicked through.
+
+## 13. Documentation tightened and pushed (16 November 2026)
+
+| # | Activity | Outcome |
+|---|---|---|
+| 33 | Shortened the README and the sign-in and authorization parts of ARCHITECTURE.md. | README runs in the order a reader needs: what it is, run, test, roles, documents, brief. No facts removed; long bullet lists became one table each. |
+| 34 | Committed rounds four and five and pushed to `origin/main`. | See the git history. |
+

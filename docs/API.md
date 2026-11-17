@@ -1,6 +1,7 @@
 # API guide
 
 - Every endpoint, with its required permission: [API_ENDPOINTS.md](API_ENDPOINTS.md) (generated)
+- One page per service: [services/](services)
 - Complete schemas: [openapi/auth-service.json](openapi/auth-service.json),
   [openapi/customer-service.json](openapi/customer-service.json),
   [openapi/audit-service.json](openapi/audit-service.json)
@@ -40,11 +41,12 @@ OAuth endpoints use the OAuth error shape instead: `{"error": "invalid_grant", "
 ```sh
 BASE=http://localhost:8080
 
-# Step 1: password. Answers 403 mfa_required. (An account exempted from MFA with no second
-# factor gets the token response here directly and skips step 2.)
+# Step 1: password. Answers 403 mfa_required. (An account whose role grants auth:mfa:skip, which
+# includes every administrator, or an account exempted from MFA with no second factor, gets the
+# token response here directly and skips step 2.)
 curl -s $BASE/auth/oauth/token \
   -d grant_type=password -d client_id=crm-web \
-  -d username=admin@example.com -d password='<password>'
+  -d username=ravi@example.com -d password='<password>'
 # {"error":"mfa_required","mfa_token":"…","mfa_method":"email","expires_in":300, ...}
 
 # Step 2: the code from email (locally: ./scripts/run-local.sh code) or the authenticator app.
@@ -73,6 +75,18 @@ curl -s -X PATCH $BASE/auth/api/v1/users/<user_id> -H "Authorization: Bearer $TO
 # The user may then turn their second factor off (403 while it is required)
 curl -s -X POST $BASE/auth/api/v1/me/mfa/disable -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"password":"<password>"}'
+```
+
+## Let a role sign in without a code
+
+```sh
+# Any role may carry the permission auth:mfa:skip. Everyone holding the role then signs in with
+# email and password only. The admin role always has it.
+curl -s -X POST $BASE/auth/api/v1/roles -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"trusted_desk","description":"No sign-in code","permissions":["auth:mfa:skip"]}'
+curl -s -X PATCH $BASE/auth/api/v1/users/<user_id> -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"roles":["agent","trusted_desk"]}'
+# The user's record now shows "mfa_skipped": true
 ```
 
 ## Enrol an authenticator app
@@ -126,6 +140,9 @@ curl -s -X POST $BASE/crm/api/v1/customers/<id>/contacts -H "Authorization: Bear
 ```
 
 ## Activity log
+
+A caller with `audit:read` (administrators) searches everyone's activity. Any other signed-in user
+gets the same endpoints limited to their own account, whatever filters they send.
 
 ```sh
 # Everything done to one customer

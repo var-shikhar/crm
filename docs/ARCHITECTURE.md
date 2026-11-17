@@ -53,7 +53,7 @@ The auth service is an OAuth 2.0 authorization server. Supported grants:
 
 | Grant | Used by | Notes |
 |---|---|---|
-| `password` | Web UI (public client `crm-web`) | Step 1 of sign-in. Answers `403 mfa_required` with an `mfa_token`. Returns tokens directly only for an account an administrator has exempted from MFA and that has no second factor. |
+| `password` | Web UI (public client `crm-web`) | Step 1 of sign-in. Answers `403 mfa_required` with an `mfa_token`. Returns tokens directly in two cases: a role grants the account `auth:mfa:skip`, or an administrator has exempted the account from MFA and it has no second factor. |
 | `urn:crm:params:oauth:grant-type:mfa-otp` | Web UI | Step 2: `mfa_token` + one-time code returns the tokens. |
 | `refresh_token` | Web UI | Rotated on every use, with reuse detection. |
 | `client_credentials` | Services | Confidential clients, HTTP Basic. |
@@ -72,19 +72,23 @@ sequenceDiagram
     A-->>B: 200 {access_token (15 min), refresh_token (7 d)}
 ```
 
-MFA is required by default. A new account uses emailed codes, or an authenticator app once the user
-enrols one (scan QR, confirm a code). Switching back to email requires the password; an administrator
-can reset a lost device.
+Whether the password step asks for a code:
 
-An administrator can make MFA optional for an individual user (`mfa_required=false`):
+| Account | Result |
+|---|---|
+| Default | Code required: emailed, or from an authenticator app once the user enrols one |
+| A role grants `auth:mfa:skip` | No code, whatever second factor is set up. `admin` always holds it |
+| Administrator set `mfa_required=false` and the user has no second factor | No code |
 
-- Created as optional, the account starts with no second factor and signs in with the password alone.
-- Made optional later, the account keeps its current second factor until the user turns it off
-  (password confirmation needed). The user can turn one back on at any time.
-- Made required again, an account with no second factor is switched to emailed codes at once.
-- Administrators cannot change this setting on their own account.
-- Every change is in the activity log, and each successful sign-in records which factor was used
-  (`mfa_method: none` for a password-only sign-in), so exempt accounts are easy to find.
+- A user can switch between email and authenticator app; switching back needs the password. An
+  administrator can reset a lost device.
+- An account made optional keeps its second factor until the user turns it off. Made required
+  again, it goes back to emailed codes at once. Administrators cannot change their own setting.
+- Removing the role or permission brings the code step back; the account's own setting is untouched.
+- Every sign-in is logged with the factor used (`mfa_method`, and `mfa_skipped_by` when a
+  permission skipped the code), so password-only accounts are easy to find.
+- Administrators signing in without a code is a convenience chosen for this system. A leaked
+  administrator password is then enough to sign in; lockout still applies.
 
 Protections in the login path:
 
@@ -138,6 +142,14 @@ claims are never trusted for permissions. Consequences:
 
 Service scopes (`authz:check`, `audit:write`) exist only on service clients and cannot be granted to
 a role, so no user can write to the activity log or call the decision endpoint.
+
+Three points beyond the basic model:
+
+- `authz/check` can be called without a permission; it then only authenticates the token. The audit
+  service uses this, because every signed-in user may read the log and the question is how much.
+- `user:read` (the list of users) and `audit:read` (everyone's activity) are in `admin` only by
+  default. An administrator can put either in another role on purpose.
+- `auth:mfa:skip` changes how its holder signs in (section 2) and grants access to nothing.
 
 Note: `user:manage` and `role:manage` are administrative powers by nature. Someone holding them can
 grant themselves any other permission. They are in the `admin` role only.
@@ -195,8 +207,19 @@ Delivery is at-least-once; the audit service ignores an `event_id` it already ha
 service is down, events wait in the outbox (typical delay when healthy: up to 2 seconds).
 
 The audit service exposes no update or delete operations, and records which authenticated service
-delivered each event. Anyone with `audit:read` can download the filtered log as CSV (newest first,
-capped at 50,000 rows per download; values that a spreadsheet would treat as formulas are neutralised).
+delivered each event.
+
+Who can read the log:
+
+| Caller | Sees |
+|---|---|
+| Holds `audit:read` (the `admin` role only, by default) | Every event |
+| Any other signed-in user | Their own account only: events they caused, and events on their own user record (sign-in attempts, a password reset or role change by an administrator) |
+
+The rule is applied in the database query of the audit service, after the auth service has
+authenticated the token, so it covers search, single events and the CSV export alike, and no filter
+can widen it. An event outside the caller's view answers 404. The export is newest first, capped at
+50,000 rows per download; values that a spreadsheet would treat as formulas are neutralised.
 
 Separately, every service writes one JSON log line per request to stdout (method, path, status,
 duration, IP, request id). The gateway assigns the request id and it is carried into audit events,
@@ -290,6 +313,8 @@ an `audit_outbox` table (payload, created_at, sent_at).
 
 These are deliberate scope cuts for a basic system, listed so nobody discovers them later:
 
+- **Administrators sign in without a second factor** (`auth:mfa:skip`, section 2). Chosen for
+  convenience; remove the permission from the catalogue or stop forcing it into `admin` before real use.
 - **Password grant, not authorization-code + PKCE.** The UI collects the password and posts it to the
   token endpoint. This is acceptable for a first-party UI on the same origin, and it is what makes the
   two-step MFA flow simple, but OAuth 2.1 drops this grant. A third-party client would need the
@@ -297,6 +322,9 @@ These are deliberate scope cuts for a basic system, listed so nobody discovers t
 - **Tokens in `sessionStorage`.** The UI keeps tokens in the browser tab. A strict Content-Security-Policy
   (no inline or third-party script) limits the exposure, but an HttpOnly-cookie session at the gateway
   would be stronger.
+- **Default roles are seeded once.** Changing a default role in code (as when `user:read` and
+  `audit:read` were taken out of `manager`) does not change that role in a database that already
+  exists; edit the role there through the API or UI.
 - **No schema migrations.** Tables are created at startup. This already cost something once: adding
   `users.mfa_required` needed a manual `ALTER TABLE` on the existing local database. Add Alembic.
 - **No clean-up job** for expired challenges, refresh tokens, revoked-token ids or sent outbox rows.

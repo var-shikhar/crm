@@ -58,6 +58,6 @@ Full request and response schemas are in `docs/openapi/*.json` and, live, at `/<
 | Method | Path | Purpose | Access | Exposed by gateway |
 |---|---|---|---|---|
 | POST | `/api/v1/events/batch` | Deliver activity events | `audit:write` (service clients only) | no (internal) |
-| GET | `/api/v1/events` | Search the activity log | `audit:read` | yes |
-| GET | `/api/v1/events/export` | Download the activity log as CSV | `audit:read` | yes |
-| GET | `/api/v1/events/{event_id}` | Get one event | `audit:read` | yes |
+| GET | `/api/v1/events` | Search the activity log | any signed-in user (own account); `audit:read` for everyone's | yes |
+| GET | `/api/v1/events/export` | Download the activity log as CSV | any signed-in user (own account); `audit:read` for everyone's | yes |
+| GET | `/api/v1/events/{event_id}` | Get one event | any signed-in user (own account); `audit:read` for everyone's | yes |
