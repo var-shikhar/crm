@@ -1,5 +1,8 @@
 # Deployment
 
+To simply start the project, follow [GETTING_STARTED.md](GETTING_STARTED.md). This page describes how
+the two setups are put together.
+
 ## 1. Local, without containers (the mode that was run and verified)
 
 `./scripts/run-local.sh start` runs four processes from one virtualenv:

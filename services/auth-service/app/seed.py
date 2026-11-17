@@ -33,8 +33,8 @@ PERMISSIONS: dict[str, str] = {
     MFA_SKIP: "Sign in with email and password only, with no verification code",
 }
 
-# Scopes held only by service clients; never grantable to a role.
-SERVICE_SCOPES = {"authz:check", "audit:write"}
+# The service scopes `authz:check` and `audit:write` are deliberately absent from this catalogue:
+# they exist only on the service clients below, so they can never be granted to a role.
 
 # Deleting is permanent, so by default only `admin` holds it; grant it to other roles deliberately.
 CUSTOMER_ALL = [p for p in PERMISSIONS if p.startswith("customer:") and p != "customer:delete"]

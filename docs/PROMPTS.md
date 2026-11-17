@@ -286,11 +286,33 @@ tables, and the work of prompts 4 and 5 was committed and pushed.
 
 ---
 
+## Prompt 7: dead code, a summary, and a start guide
+
+> So you tell me few things as:
+>
+> - Have we checked the code and has no dead-code
+> - The documentation are crisp as per the requirements
+>
+> Now I need a summary message as per the task (so I can revert the same)
+
+and then:
+
+> Cool, One update I need both in doc and for email as: I needed a way (how to start/run the project) kinda thing which is clearly mentioned in readme or anywhere which is referenced in readmd (all md should be referenced in readme okay)
+
+### Phase 19: dead-code check and getting-started guide
+
+The code had not been checked for dead code before, so the agent ran pyflakes and vulture over the
+Python code and a script over the web UI. One unused constant was removed. It then wrote
+`GETTING_STARTED.md`, linked it from the README, confirmed that every Markdown file is linked from
+the README, and drafted the summary message for the user to send.
+
+---
+
 ## Result
 
 | Deliverable | Where |
 |---|---|
-| Working system | `./scripts/run-local.sh start`, then http://localhost:8080 |
+| Working system | [GETTING_STARTED.md](GETTING_STARTED.md): `./scripts/run-local.sh start`, then http://localhost:8080 |
 | Activity from planning to deployment | [ACTIVITY_LOG.md](ACTIVITY_LOG.md) |
 | Architecture | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Documentation per microservice | [services/](services) |

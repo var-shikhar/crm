@@ -11,6 +11,9 @@ A basic CRM built as three microservices behind a gateway.
 
 ## Run it
 
+**Step-by-step guide: [Getting started](docs/GETTING_STARTED.md)** (install, start, first sign-in,
+checks, troubleshooting). The short version:
+
 Requires Python 3.13 and [uv](https://docs.astral.sh/uv/), on Linux, macOS or WSL.
 On Windows without WSL, see [Deployment](docs/DEPLOYMENT.md#on-windows-without-wsl).
 
@@ -59,11 +62,12 @@ the [permission list](docs/services/auth-service.md#permissions-and-default-role
 
 | Read this | To learn |
 |---|---|
+| [Getting started](docs/GETTING_STARTED.md) | How to start the project, sign in, try it and test it |
 | [Architecture](docs/ARCHITECTURE.md) | How the parts fit: sign-in, authorization, logging, data model, known limits |
 | [auth-service](docs/services/auth-service.md) · [customer-service](docs/services/customer-service.md) · [audit-service](docs/services/audit-service.md) | One service: what it does, endpoints, permissions, data, configuration |
 | [API guide](docs/API.md) | Conventions, errors, `curl` examples |
 | [Endpoint index](docs/API_ENDPOINTS.md) · [OpenAPI files](docs/openapi) | The full API specification, generated from the running services |
-| [Deployment](docs/DEPLOYMENT.md) | Local run and container deployment |
+| [Deployment](docs/DEPLOYMENT.md) | How the local and container setups are built, and what to change before production |
 | [Activity log](docs/ACTIVITY_LOG.md) | What was done, from planning to verification |
 | [Prompt log](docs/PROMPTS.md) | The prompts and interaction with the coding agent |
 

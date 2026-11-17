@@ -179,4 +179,5 @@ clicked through.
 |---|---|---|
 | 33 | Shortened the README and the sign-in and authorization parts of ARCHITECTURE.md. | README runs in the order a reader needs: what it is, run, test, roles, documents, brief. No facts removed; long bullet lists became one table each. |
 | 34 | Committed rounds four and five and pushed to `origin/main`. | See the git history. |
-
+| 35 | Checked for dead code: pyflakes and vulture on the Python code, and a script over the web UI for unused functions, handlers and CSS classes. | One unused constant removed from `services/auth-service/app/seed.py`. Nothing else found. |
+| 36 | Wrote `docs/GETTING_STARTED.md` and linked it from the README. | One page for starting the project: both ways to run it, first sign-in, checks, troubleshooting. Every Markdown file is now linked from the README. |
