@@ -13,9 +13,12 @@ log = logging.getLogger("auth.seed")
 
 MFA_GRANT = "urn:crm:params:oauth:grant-type:mfa-otp"
 
+# Holding this permission through any role signs the account in with email and password only.
+MFA_SKIP = "auth:mfa:skip"
+
 # Permissions that can be granted to human users through roles.
 PERMISSIONS: dict[str, str] = {
-    "user:read": "View users",
+    "user:read": "View users (administrators only by default)",
     "user:manage": "Create and update users, assign roles, reset MFA",
     "role:read": "View roles and permissions",
     "role:manage": "Create, update and delete roles",
@@ -26,7 +29,8 @@ PERMISSIONS: dict[str, str] = {
     "customer:delete": "Permanently delete customers",
     "customer:employment:manage": "Add, edit and remove customer employment records",
     "customer:contact:manage": "Add, edit and remove customer related contacts",
-    "audit:read": "View the activity log",
+    "audit:read": "View everyone's activity (without it a user sees only their own)",
+    MFA_SKIP: "Sign in with email and password only, with no verification code",
 }
 
 # Scopes held only by service clients; never grantable to a role.
@@ -37,10 +41,8 @@ CUSTOMER_ALL = [p for p in PERMISSIONS if p.startswith("customer:") and p != "cu
 
 DEFAULT_ROLES: dict[str, tuple[str, list[str]]] = {
     "admin": ("Full access to every module", list(PERMISSIONS)),
-    "manager": (
-        "Manages customers including employment and contacts; can review activity",
-        CUSTOMER_ALL + ["audit:read", "user:read"],
-    ),
+    # Users and other people's activity are for administrators: no `user:read` or `audit:read` here.
+    "manager": ("Manages customers including employment and contacts", CUSTOMER_ALL),
     "agent": ("Adds and edits customers", ["customer:read", "customer:create", "customer:update"]),
     "viewer": ("Read-only access to customers", ["customer:read"]),
 }

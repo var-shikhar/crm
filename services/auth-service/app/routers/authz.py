@@ -20,12 +20,13 @@ def check(
     Caller authenticates with HTTP Basic (its client id and secret).
     `active=false` means the token is not valid (expired, revoked, user disabled);
     `allowed=false` means the token is valid but its owner lacks `permission`.
+    Without `permission` the call only authenticates: any valid token is allowed.
     Denials are recorded in the activity log.
     """
     principal = resolve_token(db, body.token)
     if principal is None:
         return AuthzCheckOut(active=False, allowed=False)
-    allowed = principal.has(body.permission)
+    allowed = body.permission is None or principal.has(body.permission)
     if not allowed:
         audit.emit(
             db,

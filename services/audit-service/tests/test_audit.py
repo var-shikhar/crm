@@ -23,12 +23,45 @@ def test_ingest_is_idempotent(client):
     assert ingest(client, batch + [event("customer.viewed")]).json() == {"accepted": 1, "duplicates": 2}
 
 
-def test_only_service_clients_can_write_and_only_auditors_can_read(client):
+def test_only_service_clients_can_write_and_reading_needs_a_user(client):
     assert ingest(client, [event()], caller="auditor").status_code == 403
     assert ingest(client, [event()], caller="agent").status_code == 403
     assert client.post("/api/v1/events/batch", json={"events": [event()]}).status_code == 401
-    assert client.get("/api/v1/events", headers=as_caller("agent")).status_code == 403
+    assert client.get("/api/v1/events").status_code == 401
     assert client.get("/api/v1/events", headers=as_caller("svc")).status_code == 403
+
+
+def test_without_audit_read_a_user_sees_only_their_own_account(client):
+    mine = event("customer.created", actor_id="u-2", actor_email="agent@example.com")
+    about_me = event("user.password.reset", service="auth-service", actor_id="u-1",
+                     actor_email="auditor@example.com", resource_type="user", resource_id="u-2")
+    my_failed_login = event("auth.login.failed", service="auth-service", outcome="failure", actor_id=None,
+                            actor_type="anonymous", actor_email="agent@example.com",
+                            resource_type="user", resource_id="u-2")
+    someone_else = event("customer.blocked")  # actor u-9, customer c-1
+    ingest(client, [mine, about_me, my_failed_login, someone_else])
+    agent, auditor = as_caller("agent"), as_caller("auditor")
+
+    page = client.get("/api/v1/events", headers=agent).json()
+    assert {e["action"] for e in page["items"]} == {"customer.created", "user.password.reset", "auth.login.failed"}
+    assert page["total"] == 3
+    # Filters cannot widen the view: asking for another person's events returns nothing.
+    assert client.get("/api/v1/events?actor_id=u-9", headers=agent).json()["total"] == 0
+    assert client.get("/api/v1/events?actor_email=jane", headers=agent).json()["total"] == 0
+    assert client.get("/api/v1/events?resource_id=c-1", headers=agent).json()["total"] == 1  # only their own action
+
+    assert client.get(f"/api/v1/events/{mine['event_id']}", headers=agent).status_code == 200
+    assert client.get(f"/api/v1/events/{someone_else['event_id']}", headers=agent).status_code == 404
+
+    export = client.get("/api/v1/events/export?action=customer.*", headers=agent)
+    assert export.status_code == 200
+    assert "customer.created" in export.text and "customer.blocked" not in export.text
+
+    # The holder of audit:read still sees everything, including the agent's own reads, marked "own".
+    everything = client.get("/api/v1/events?page_size=200", headers=auditor).json()
+    assert {"customer.blocked", "customer.created"} <= {e["action"] for e in everything["items"]}
+    views = [e for e in everything["items"] if e["action"] == "audit.viewed"]
+    assert views and all(e["details"]["scope"] == "own" and e["actor_id"] == "u-2" for e in views)
 
 
 def test_query_filters_and_ordering(client):
@@ -83,8 +116,6 @@ def test_csv_export(client):
         event("customer.blocked", occurred_at="2026-11-14T11:00:00+00:00", details={"reason": "fraud, suspected"}),
         event("auth.login.failed", service="auth-service", outcome="failure", actor_name="=HYPERLINK(\"http://x\")"),
     ])
-    assert client.get("/api/v1/events/export", headers=as_caller("agent")).status_code == 403
-
     r = client.get("/api/v1/events/export?action=customer.*", headers=as_caller("auditor"))
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
     assert "attachment" in r.headers["content-disposition"] and r.headers["x-truncated"] == "false"

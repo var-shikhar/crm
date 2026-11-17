@@ -108,7 +108,7 @@ const statusBadge = (s) => badge(s, s === 'active' || s === 'success' ? 'ok' : '
 
 const NAV = [
   ['customers', 'Customers', 'customer:read'],
-  ['audit', 'Activity log', 'audit:read'],
+  ['audit', 'Activity', null],
   ['users', 'Users', 'user:read'],
   ['roles', 'Roles', 'role:read'],
   ['security', 'My security', null],
@@ -317,9 +317,11 @@ async function auditView() {
       <td>${Object.keys(e.details).length ? `<details><summary>Details</summary><pre class="details mono">${esc(JSON.stringify(e.details, null, 2))}</pre></details>` : ''}</td>
     </tr>`).join('');
   return `
-    <h1>Activity log</h1><p class="muted">Every action across the CRM, with who did it and when. Newest first.</p>
+    ${can('audit:read')
+      ? '<h1>Activity log</h1><p class="muted">Every action across the CRM, with who did it and when. Newest first.</p>'
+      : '<h1>My activity</h1><p class="muted">What you did in the CRM, and what was done to your account (sign-in attempts, changes by an administrator). Newest first.</p>'}
     <form class="card row" data-form="search-audit">
-      ${field('User email contains', 'actor_email', p.actor_email || '')}
+      ${can('audit:read') ? field('User email contains', 'actor_email', p.actor_email || '') : ''}
       ${field('Action (e.g. customer.* )', 'action', p.action || '')}
       ${field('Record ID', 'resource_id', p.resource_id || '')}
       <label>Outcome<select name="outcome">${['', 'success', 'failure', 'denied'].map((o) =>
@@ -347,8 +349,8 @@ async function usersView() {
   const rows = users.map((u) => `<tr>
       <td>${esc(u.full_name)}<div class="small muted">${esc(u.email)}</div></td>
       <td>${u.roles.map((r) => badge(r)).join(' ') || '<span class="muted">none</span>'}</td>
-      <td>${badge(MFA_LABEL[u.mfa_method] || u.mfa_method, u.mfa_method === 'none' ? 'bad' : '')}
-        <div class="small muted">${u.mfa_required ? 'required' : 'optional'}</div></td>
+      <td>${u.mfa_skipped ? badge('no code asked', 'bad') : badge(MFA_LABEL[u.mfa_method] || u.mfa_method, u.mfa_method === 'none' ? 'bad' : '')}
+        <div class="small muted">${u.mfa_skipped ? 'a role allows password-only sign-in' : u.mfa_required ? 'required' : 'optional'}</div></td>
       <td>${u.is_active ? badge('active', 'ok') : badge('disabled', 'bad')} ${u.is_locked ? badge('locked', 'bad') : ''}</td>
       <td class="small muted">${when(u.last_login_at)}</td>
       <td class="actions">${manage ? `<button class="small" data-action="edit-user" data-id="${u.id}">Manage</button>` : ''}</td></tr>`).join('');
@@ -409,6 +411,7 @@ async function securityView() {
   return `
     <h1>My security</h1>
     <div class="card stack"><h2>Second factor</h2>
+      ${me.mfa_skipped ? `<div class="notice warn">One of your roles allows signing in with email and password only, so you are not asked for a code${me.mfa_method === 'none' ? '' : ', whatever is set up below'}. An administrator controls this through the <span class="mono">auth:mfa:skip</span> permission.</div>` : ''}
       ${me.mfa_method === 'none'
         ? '<div class="notice warn">Your account signs in with a password only. Adding a second factor protects it if the password leaks.</div>'
         : `<p>Signing in needs your password plus a one-time code. Your codes currently come from:
@@ -446,7 +449,7 @@ const FORMS = {
       return render();
     }
     if (!r.ok) throw new Error(errorText(r.body, r.status));
-    // Account without a second factor (an administrator made MFA optional for it).
+    // No code asked: the account has no second factor, or a role grants auth:mfa:skip.
     saveTokens(r.body);
     await loadMe();
     go(can('customer:read') ? 'customers' : 'security');

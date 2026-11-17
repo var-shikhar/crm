@@ -82,6 +82,11 @@ class User(Base):
         return sorted({p.code for r in self.roles for p in r.permissions})
 
     @property
+    def mfa_skipped(self) -> bool:
+        """True when a role grants sign-in without a code, whatever second factor is configured."""
+        return any(p.code == "auth:mfa:skip" for r in self.roles for p in r.permissions)
+
+    @property
     def is_locked(self) -> bool:
         return self.locked_until is not None and self.locked_until > utcnow()
 

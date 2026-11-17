@@ -28,6 +28,7 @@ class UserOut(BaseModel):
     is_active: bool
     mfa_required: bool
     mfa_method: str
+    mfa_skipped: bool = Field(description="A role grants `auth:mfa:skip`: sign-in asks for no code")
     roles: list[str] = Field(validation_alias="role_names")
     is_locked: bool
     last_login_at: datetime | None
@@ -108,7 +109,10 @@ class PermissionOut(BaseModel):
 
 class AuthzCheckIn(BaseModel):
     token: str
-    permission: str
+    permission: str | None = Field(
+        default=None,
+        description="Permission the action needs. Omit to only authenticate the token, for an endpoint "
+                    "any signed-in caller may use on their own data.")
     context: dict = {}
 
 

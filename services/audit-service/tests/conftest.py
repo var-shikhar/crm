@@ -30,7 +30,7 @@ def client(monkeypatch):
         caller = CALLERS.get(token)
         if caller is None:
             raise HTTPException(401, "Invalid or expired token")
-        if not caller.has(permission):
+        if permission is not None and not caller.has(permission):
             raise HTTPException(403, f"Missing permission: {permission}")
         return caller
 

@@ -13,7 +13,7 @@ from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import JSON, String, Uuid, func, select, text
+from sqlalchemy import JSON, String, Uuid, and_, func, or_, select, text
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from crm_common.authz import AuthzClient, Principal
@@ -178,6 +178,25 @@ def event_filters(
     return conditions
 
 
+READ_ALL = "audit:read"
+
+
+def reader(request: Request, caller: Principal = Depends(authz.requires(None))) -> Principal:
+    """Who may read the log: holders of `audit:read` (everything) and any signed-in user (own account)."""
+    if caller.type != "user" and not caller.has(READ_ALL):
+        raise HTTPException(403, f"Missing permission: {READ_ALL}")
+    return caller
+
+
+def visible_to(caller: Principal) -> list:
+    """Row-level rule. With `audit:read`: every event. Otherwise only the caller's own account:
+    what they did, and what was done to their user record (sign-in attempts, changes by an administrator)."""
+    if caller.has(READ_ALL):
+        return []
+    return [or_(AuditEvent.actor_id == caller.id,
+                and_(AuditEvent.resource_type == "user", AuditEvent.resource_id == caller.id))]
+
+
 def record_access(db: Session, request: Request, caller: Principal, action: str, returned: int) -> None:
     """Reading the log is itself an audited action."""
     meta = request_meta(request)
@@ -188,7 +207,8 @@ def record_access(db: Session, request: Request, caller: Principal, action: str,
             actor_email=caller.email, actor_name=caller.name, actor_roles=caller.roles,
             resource_type="audit_log", ip_address=meta["ip_address"], user_agent=meta["user_agent"],
             request_id=meta["request_id"],
-            details={"filters": dict(request.query_params), "returned": returned},
+            details={"filters": dict(request.query_params), "returned": returned,
+                     "scope": "all" if caller.has(READ_ALL) else "own"},
         )
     )
     db.commit()
@@ -200,10 +220,14 @@ def list_events(
     conditions: list = Depends(event_filters),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    caller: Principal = Depends(authz.requires("audit:read")),
+    caller: Principal = Depends(reader),
     db: Session = Depends(get_db),
 ):
-    """Newest first. Viewing the log is itself recorded."""
+    """Newest first. Viewing the log is itself recorded.
+
+    With `audit:read` you see everyone's activity. Without it you see only your own account's:
+    your actions, and actions on your user record."""
+    conditions = conditions + visible_to(caller)
     total = db.scalar(select(func.count()).select_from(AuditEvent).where(*conditions))
     items = db.scalars(
         select(AuditEvent)
@@ -243,11 +267,12 @@ def _csv_cell(value) -> str:
 def export_events(
     request: Request,
     conditions: list = Depends(event_filters),
-    caller: Principal = Depends(authz.requires("audit:read")),
+    caller: Principal = Depends(reader),
     db: Session = Depends(get_db),
 ):
-    """Same filters as the search. Newest first, at most 50,000 rows; the `X-Truncated` header is
-    `true` when more matched. The export is itself recorded, with the filters used."""
+    """Same filters and the same visibility rule as the search. Newest first, at most 50,000 rows;
+    the `X-Truncated` header is `true` when more matched. The export is itself recorded, with the filters used."""
+    conditions = conditions + visible_to(caller)
     rows = db.scalars(
         select(AuditEvent).where(*conditions).order_by(AuditEvent.occurred_at.desc()).limit(EXPORT_MAX_ROWS + 1)
     ).all()
@@ -269,9 +294,9 @@ def export_events(
 
 
 @app.get("/api/v1/events/{event_id}", response_model=EventOut, tags=["Activity log"], summary="Get one event")
-def get_event(event_id: uuid.UUID, _: Principal = Depends(authz.requires("audit:read")),
-              db: Session = Depends(get_db)):
-    event = db.get(AuditEvent, event_id)
+def get_event(event_id: uuid.UUID, caller: Principal = Depends(reader), db: Session = Depends(get_db)):
+    """An event outside what the caller may see answers 404, the same as one that does not exist."""
+    event = db.scalar(select(AuditEvent).where(AuditEvent.event_id == event_id, *visible_to(caller)))
     if event is None:
         raise HTTPException(404, "Event not found")
     return event

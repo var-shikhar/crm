@@ -50,12 +50,24 @@ def mfa_step(client, mfa_token, otp):
 
 
 def login(client, email=ADMIN[0], password=ADMIN[1]) -> dict:
-    """Full email-MFA login; returns the token response."""
+    """Full login; returns the token response. The admin role holds `auth:mfa:skip`, so the
+    administrator gets tokens from the password alone; everyone else completes the email code."""
     step1 = password_step(client, email, password)
+    if step1.status_code == 200:
+        return step1.json()
     assert step1.status_code == 403 and step1.json()["error"] == "mfa_required", step1.text
     step2 = mfa_step(client, step1.json()["mfa_token"], last_email_code())
     assert step2.status_code == 200, step2.text
     return step2.json()
+
+
+STAFF = ("staff@example.com", "User-Passw0rd!")
+
+
+def make_staff(client) -> tuple[str, str]:
+    """An ordinary account (role `viewer`), which must use a second factor."""
+    make_user(client, login(client), STAFF[0], ["viewer"], STAFF[1])
+    return STAFF
 
 
 def bearer(tokens: dict) -> dict:

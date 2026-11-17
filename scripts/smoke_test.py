@@ -18,9 +18,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BASE = os.environ.get("BASE_URL", "http://127.0.0.1:8080")
-AUTH_LOG = ROOT / ".local" / "logs" / "auth.log"
+LOCAL = Path(os.environ.get("CRM_LOCAL_DIR", ROOT / ".local"))  # where run-local.sh keeps env and logs
+AUTH_LOG = LOCAL / "logs" / "auth.log"
 MFA_GRANT = "urn:crm:params:oauth:grant-type:mfa-otp"
-ENV = dict(line.split("=", 1) for line in (ROOT / ".local" / "env").read_text().splitlines() if "=" in line)
+ENV = dict(line.split("=", 1) for line in (LOCAL / "env").read_text().splitlines() if "=" in line)
 
 passed = 0
 
@@ -68,7 +69,7 @@ def emailed_code(email: str) -> str:
 def login(email: str, password: str) -> dict:
     status, step1 = call("POST", "/auth/oauth/token", form={
         "grant_type": "password", "client_id": "crm-web", "username": email, "password": password})
-    if status == 200:  # account exempt from MFA
+    if status == 200:  # account exempt from MFA, or a role grants auth:mfa:skip
         return step1
     assert status == 403 and step1["error"] == "mfa_required", (status, step1)
     status, tokens = call("POST", "/auth/oauth/token", form={
@@ -84,13 +85,15 @@ def main() -> None:
     print("Authentication")
     status, body = call("POST", "/auth/oauth/token", form={
         "grant_type": "password", "client_id": "crm-web", "username": admin_email, "password": admin_password})
-    check("password alone returns mfa_required, not tokens", status == 403 and "access_token" not in body, body)
+    check("administrator (role grants auth:mfa:skip) signs in with password only",
+          status == 200 and "auth:mfa:skip" in body.get("scope", "").split(), body)
     status, body = call("POST", "/auth/oauth/token", form={
         "grant_type": "password", "client_id": "crm-web", "username": admin_email, "password": "wrong-password"})
     check("wrong password is rejected", status == 400 and body["error"] == "invalid_grant", body)
     admin = login(admin_email, admin_password)["access_token"]
     status, me = call("GET", "/auth/api/v1/me", token=admin)
-    check("admin signs in with email code as second factor", status == 200 and me["roles"] == ["admin"], me)
+    check("administrator profile shows the role and that no code is asked",
+          status == 200 and me["roles"] == ["admin"] and me["mfa_skipped"] is True, me)
 
     print("User and role management")
     password = "Smoke-Test-Passw0rd!"
@@ -100,10 +103,16 @@ def main() -> None:
         status, user = call("POST", "/auth/api/v1/users", token=admin, body={
             "email": email, "full_name": f"Smoke {role.title()}", "password": password, "roles": [role]})
         check(f"admin creates a user with role {role}", status == 201 and user["roles"] == [role], user)
+        status, body = call("POST", "/auth/oauth/token", form={
+            "grant_type": "password", "client_id": "crm-web", "username": email, "password": password})
+        check(f"{role}: password alone returns mfa_required, not tokens",
+              status == 403 and body["error"] == "mfa_required" and "access_token" not in body, body)
         users[role] = {"email": email, "id": user["id"], "token": login(email, password)["access_token"]}
     agent, manager = users["agent"]["token"], users["manager"]["token"]
     status, _ = call("GET", "/auth/api/v1/users", token=agent)
     check("agent cannot list users (403)", status == 403)
+    status, _ = call("GET", "/auth/api/v1/users", token=manager)
+    check("manager cannot list users either: administrators only (403)", status == 403)
 
     print("MFA optional per user")
     kiosk = f"kiosk.{run}@example.com"
@@ -225,8 +234,30 @@ def main() -> None:
     check("activity log exports as CSV with the same filters",
           status == 200 and lines and lines[0].startswith("occurred_at,service,action") and len(lines) - 1 == len(lifecycle)
           and any("customer.blocked" in ln and users["manager"]["email"] in ln for ln in lines), (status, lines[:2]))
-    status, _ = call("GET", "/audit/api/v1/events/export", token=manager)
-    check("manager (audit:read) can export", status == 200)
+    mine = []
+    for _ in range(20):  # the manager's own events also arrive through the outbox
+        status, page = call("GET", "/audit/api/v1/events?page_size=200", token=manager)
+        mine = page["items"] if status == 200 else []
+        if any(e["action"] == "customer.blocked" for e in mine):
+            break
+        time.sleep(0.5)
+    mid = users["manager"]["id"]
+    check("a non-admin sees only their own account's activity",
+          any(e["action"] == "customer.blocked" for e in mine)
+          and all(e["actor_id"] == mid or (e["resource_type"] == "user" and e["resource_id"] == mid) for e in mine),
+          [(e["action"], e["actor_email"]) for e in mine if e["actor_id"] != mid][:5])
+    check("that includes what an administrator did to their account",
+          any(e["action"] == "user.created" and e["resource_id"] == mid for e in mine))
+    status, page = call("GET", f"/audit/api/v1/events?actor_id={users['agent']['id']}", token=manager)
+    check("a filter cannot widen it to someone else's activity", status == 200 and page["total"] == 0, page)
+    status, _ = call("GET", f"/audit/api/v1/events/{blocked['event_id']}", token=manager)
+    check("their own event opens (200)", status == 200)
+    other = next(e for e in lifecycle if e["actor_email"] == users["agent"]["email"])
+    status, _ = call("GET", f"/audit/api/v1/events/{other['event_id']}", token=manager)
+    check("someone else's event is hidden (404)", status == 404)
+    status, text = call("GET", "/audit/api/v1/events/export", token=manager)
+    check("their export holds only their own activity",
+          status == 200 and users["manager"]["email"] in text and users["agent"]["email"] not in text)
 
     print("Sign out")
     call("POST", "/auth/oauth/revoke", form={"token": admin, "client_id": "crm-web"})

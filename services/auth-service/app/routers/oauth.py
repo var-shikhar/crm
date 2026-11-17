@@ -2,7 +2,8 @@
 
 Grants:
   password            first-party UI login; answers `mfa_required` (step 1) unless the
-                      account is exempt from MFA and has no second factor
+                      account is exempt from MFA and has no second factor, or a role
+                      grants it `auth:mfa:skip`
   urn:crm:...:mfa-otp completes login with the second factor (step 2)
   refresh_token       rotation with reuse detection
   client_credentials  service-to-service
@@ -36,7 +37,7 @@ from ..security import (
     sha256_hex,
     verify_password,
 )
-from ..seed import MFA_GRANT
+from ..seed import MFA_GRANT, MFA_SKIP
 
 router = APIRouter(tags=["OAuth 2.0"])
 
@@ -150,12 +151,16 @@ def _grant_password(request: Request, db: Session, client: OAuthClient, username
     user.failed_login_count = 0
     user.locked_until = None
 
-    if user.mfa_method == "none":
-        # This account is exempt from MFA (administrator's decision) and has not opted in.
+    if user.mfa_method == "none" or user.mfa_skipped:
+        # No second step: either the account is exempt from MFA (administrator's decision) and has
+        # not opted in, or one of its roles grants `auth:mfa:skip`. The log records which.
         user.last_login_at = utcnow()
         tokens = _issue_user_tokens(db, user, client)
+        details = {"mfa_method": "none", "client_id": client.client_id}
+        if user.mfa_skipped:
+            details["mfa_skipped_by"] = MFA_SKIP
         audit.emit(db, "auth.login.succeeded", request=request, actor=user_principal(user), resource_type="user",
-                   resource_id=user.id, details={"mfa_method": "none", "client_id": client.client_id})
+                   resource_id=user.id, details=details)
         db.commit()
         return tokens
 
@@ -274,7 +279,7 @@ def _grant_client_credentials(db: Session, client: OAuthClient):
     responses={
         400: {"description": "OAuth error (`invalid_grant`, `invalid_request`, `unsupported_grant_type`, ...)"},
         401: {"description": "`invalid_client`"},
-        403: {"description": "`mfa_required` (password grant, account has a second factor): body carries `mfa_token` and `mfa_method`; "
+        403: {"description": "`mfa_required` (password grant, account has a second factor and no `auth:mfa:skip` permission): body carries `mfa_token` and `mfa_method`; "
                              "retry with the MFA grant and the one-time code"},
     },
 )

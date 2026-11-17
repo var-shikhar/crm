@@ -40,7 +40,8 @@ class AuthzClient:
     def __init__(self, auth_url: str, client_id: str, client_secret: str, timeout: float = 5.0):
         self._http = httpx.Client(base_url=auth_url, auth=(client_id, client_secret), timeout=timeout)
 
-    def check(self, token: str, permission: str, context: dict | None = None) -> Principal:
+    def check(self, token: str, permission: str | None, context: dict | None = None) -> Principal:
+        """`permission=None` only authenticates the token."""
         try:
             resp = self._http.post(
                 "/api/v1/authz/check",
@@ -58,8 +59,11 @@ class AuthzClient:
             raise HTTPException(403, f"Missing permission: {permission}")
         return Principal(**data["principal"])
 
-    def requires(self, permission: str):
-        """FastAPI dependency: authenticate the caller and require `permission`."""
+    def requires(self, permission: str | None):
+        """FastAPI dependency: authenticate the caller and require `permission`.
+
+        `requires(None)` accepts any signed-in caller. Use it only for endpoints that then limit
+        the caller to their own data."""
 
         def dependency(
             request: Request,

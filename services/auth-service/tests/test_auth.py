@@ -5,11 +5,13 @@ import pyotp
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
+from app import emailer
 from app.db import SessionLocal
 from app.main import app
 from app.models import AuditOutbox, RefreshToken
 
-from .conftest import ADMIN, SERVICE_AUTH, bearer, last_email_code, login, make_user, mfa_step, password_step
+from .conftest import (ADMIN, SERVICE_AUTH, bearer, last_email_code, login, make_staff, make_user, mfa_step,
+                       password_step)
 
 
 def audit_actions() -> list[str]:
@@ -26,8 +28,8 @@ def authz_check(client, token, permission):
 # ------------------------------------------------------------ login and MFA
 
 
-def test_password_alone_never_yields_tokens(client):
-    r = password_step(client, *ADMIN)
+def test_password_alone_does_not_yield_tokens_by_default(client):
+    r = password_step(client, *make_staff(client))
     assert r.status_code == 403
     body = r.json()
     assert body["error"] == "mfa_required" and body["mfa_method"] == "email"
@@ -35,16 +37,24 @@ def test_password_alone_never_yields_tokens(client):
 
 
 def test_email_mfa_login_and_profile(client):
-    tokens = login(client)
+    staff = make_staff(client)
+    before = len(audit_actions())
+    tokens = login(client, *staff)
     me = client.get("/api/v1/me", headers=bearer(tokens)).json()
-    assert me["email"] == ADMIN[0]
-    assert me["roles"] == ["admin"]
+    assert me["email"] == staff[0]
+    assert me["roles"] == ["viewer"] and me["permissions"] == ["customer:read"]
+    assert me["mfa_skipped"] is False
+    assert audit_actions()[before:] == ["auth.mfa.challenged", "auth.login.succeeded"]
+
+
+def test_administrator_profile(client):
+    me = client.get("/api/v1/me", headers=bearer(login(client))).json()
+    assert me["email"] == ADMIN[0] and me["roles"] == ["admin"]
     assert "customer:block" in me["permissions"] and "user:manage" in me["permissions"]
-    assert audit_actions() == ["auth.mfa.challenged", "auth.login.succeeded"]
 
 
 def test_wrong_code_rejected_and_challenge_single_use(client):
-    mfa_token = password_step(client, *ADMIN).json()["mfa_token"]
+    mfa_token = password_step(client, *make_staff(client)).json()["mfa_token"]
     code = last_email_code()
     wrong = "000000" if code != "000000" else "111111"
     assert mfa_step(client, mfa_token, wrong).json()["error"] == "invalid_grant"
@@ -53,7 +63,7 @@ def test_wrong_code_rejected_and_challenge_single_use(client):
 
 
 def test_mfa_attempts_are_capped(client):
-    mfa_token = password_step(client, *ADMIN).json()["mfa_token"]
+    mfa_token = password_step(client, *make_staff(client)).json()["mfa_token"]
     code = last_email_code()
     wrong = "000000" if code != "000000" else "111111"
     for _ in range(5):
@@ -77,7 +87,8 @@ def test_unknown_user_looks_like_bad_password(client):
 
 
 def test_totp_enrolment_and_login(client):
-    tokens = login(client)
+    staff = make_staff(client)
+    tokens = login(client, *staff)
     setup = client.post("/api/v1/me/mfa/totp/setup", headers=bearer(tokens)).json()
     assert setup["otpauth_uri"].startswith("otpauth://totp/") and "<svg" in setup["qr_svg"]
     totp = pyotp.TOTP(setup["secret"])
@@ -86,7 +97,7 @@ def test_totp_enrolment_and_login(client):
     activated = client.post("/api/v1/me/mfa/totp/activate", headers=bearer(tokens), json={"otp": totp.now()})
     assert activated.status_code == 200 and activated.json()["mfa_method"] == "totp"
 
-    step1 = password_step(client, *ADMIN).json()
+    step1 = password_step(client, *staff).json()
     assert step1["mfa_method"] == "totp"
     # The code used for enrolment cannot be replayed for login.
     assert mfa_step(client, step1["mfa_token"], totp.now()).status_code == 400
@@ -95,7 +106,7 @@ def test_totp_enrolment_and_login(client):
 
     # Going back to email requires the password.
     assert client.post("/api/v1/me/mfa/email", headers=bearer(tokens), json={"password": "nope"}).status_code == 400
-    back = client.post("/api/v1/me/mfa/email", headers=bearer(tokens), json={"password": ADMIN[1]})
+    back = client.post("/api/v1/me/mfa/email", headers=bearer(tokens), json={"password": staff[1]})
     assert back.json()["mfa_method"] == "email"
 
 
@@ -380,3 +391,75 @@ def test_admin_cannot_exempt_themselves(client):
     me = client.get("/api/v1/me", headers=bearer(admin)).json()
     r = client.patch(f"/api/v1/users/{me['id']}", headers=bearer(admin), json={"mfa_required": False})
     assert r.status_code == 400
+
+
+# ------------------------------------------- sign-in without a code, by permission
+
+
+def last_audit() -> dict:
+    with SessionLocal() as db:
+        return db.scalars(select(AuditOutbox).order_by(AuditOutbox.id.desc())).first().payload
+
+
+def test_administrator_signs_in_without_a_code(client):
+    r = password_step(client, *ADMIN)
+    assert r.status_code == 200 and r.json()["access_token"] and r.json()["refresh_token"]
+    assert "auth:mfa:skip" in r.json()["scope"].split()
+    assert emailer.outbox == []  # no code was sent
+    last = last_audit()
+    assert last["action"] == "auth.login.succeeded"
+    assert last["details"]["mfa_method"] == "none" and last["details"]["mfa_skipped_by"] == "auth:mfa:skip"
+
+
+def test_skip_permission_follows_the_role(client):
+    admin = login(client)
+    r = client.post("/api/v1/roles", headers=bearer(admin),
+                    json={"name": "trusted", "description": "No sign-in code", "permissions": ["auth:mfa:skip"]})
+    assert r.status_code == 201, r.text
+    user = make_user(client, admin, "trusted@example.com", ["viewer"])
+    creds = ("trusted@example.com", "User-Passw0rd!")
+    assert user["mfa_skipped"] is False and password_step(client, *creds).status_code == 403
+
+    # Granting the role takes effect at the next sign-in. The account's own setting is untouched,
+    # so the second factor returns as soon as the role is taken away.
+    r = client.patch(f"/api/v1/users/{user['id']}", headers=bearer(admin), json={"roles": ["viewer", "trusted"]})
+    assert r.json()["mfa_skipped"] is True and r.json()["mfa_required"] is True and r.json()["mfa_method"] == "email"
+    assert password_step(client, *creds).status_code == 200
+    assert last_audit()["details"]["mfa_skipped_by"] == "auth:mfa:skip"
+
+    client.patch(f"/api/v1/users/{user['id']}", headers=bearer(admin), json={"roles": ["viewer"]})
+    assert password_step(client, *creds).json()["error"] == "mfa_required"
+
+
+def test_skip_permission_overrides_an_authenticator_app(client):
+    admin = login(client)
+    setup = client.post("/api/v1/me/mfa/totp/setup", headers=bearer(admin)).json()
+    code = pyotp.TOTP(setup["secret"]).now()
+    activated = client.post("/api/v1/me/mfa/totp/activate", headers=bearer(admin), json={"otp": code})
+    assert activated.json()["mfa_method"] == "totp" and activated.json()["mfa_skipped"] is True
+    assert password_step(client, *ADMIN).status_code == 200
+
+
+# ------------------------------------------------- who sees users and activity
+
+
+def test_users_are_visible_to_administrators_only_by_default(client):
+    admin = login(client)
+    for role in ("manager", "agent", "viewer"):
+        make_user(client, admin, f"{role}@example.com", [role])
+        tokens = login(client, f"{role}@example.com", "User-Passw0rd!")
+        me = client.get("/api/v1/me", headers=bearer(tokens)).json()
+        assert "user:read" not in me["permissions"] and "audit:read" not in me["permissions"], role
+        assert client.get("/api/v1/users", headers=bearer(tokens)).status_code == 403, role
+    assert len(client.get("/api/v1/users", headers=bearer(admin)).json()) == 4
+
+
+def test_authz_check_without_a_permission_only_authenticates(client):
+    admin = login(client)
+    make_user(client, admin, "plain@example.com", ["viewer"])
+    tokens = login(client, "plain@example.com", "User-Passw0rd!")
+    r = client.post("/api/v1/authz/check", auth=SERVICE_AUTH, json={"token": tokens["access_token"]})
+    assert r.json()["active"] is True and r.json()["allowed"] is True
+    assert r.json()["principal"]["email"] == "plain@example.com"
+    r = client.post("/api/v1/authz/check", auth=SERVICE_AUTH, json={"token": "not-a-token"})
+    assert r.json() == {"active": False, "allowed": False, "principal": None}

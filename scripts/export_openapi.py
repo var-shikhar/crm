@@ -42,7 +42,7 @@ def access(service: str, method: str, path: str, op: dict) -> str:
             return "OAuth client"
         return "public"
     if service == "audit-service":
-        return "`audit:write` (service clients only)" if path.endswith("/batch") else "`audit:read`"
+        return "`audit:write` (service clients only)" if path.endswith("/batch") else "any signed-in user (own account); `audit:read` for everyone's"
     return "bearer token"
 
 
